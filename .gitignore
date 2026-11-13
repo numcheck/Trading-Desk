@@ -1,0 +1,15 @@
+# Environnement Python local (757 Mo, reinstallable)
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Cache de donnees telechargees : regenerable par `python -m research.data`
+research/cache/
+
+# Intermediaires de calcul : regenerables par `python -m research.engine`
+research/out/rt_*.pkl
+research/out/cand_*.pkl
+
+# Systeme
+.DS_Store
