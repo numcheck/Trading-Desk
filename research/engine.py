@@ -22,7 +22,9 @@ import numpy as np
 import pandas as pd
 from scipy.stats import chi2, kstest, norm
 
-from hodlod.evaluate import block_bootstrap_ci
+from hodlod.evaluate import block_bootstrap_ci, brier, brier_skill
+from hodlod.realtime import p_final_now
+from hodlod.vol import HAR
 from research.data import daily, sessions_1h
 
 warnings.filterwarnings("ignore")
@@ -49,26 +51,24 @@ def parkinson_var(d: pd.DataFrame) -> np.ndarray:
 
 
 def har_walkforward(var: np.ndarray, min_train: int = 120, step: int = 20) -> np.ndarray:
-    """sigma_hat[t] strictly causal (HAR on log variance)."""
-    x = np.log(np.maximum(var, 1e-12))
-    s = pd.Series(x)
-    X = np.column_stack([s.shift(1), s.shift(1).rolling(5).mean(),
-                         s.shift(1).rolling(22).mean()])
-    ok = np.isfinite(X).all(axis=1) & np.isfinite(x)
-    out = np.full(len(x), np.nan)
-    coef = None
-    for t in range(len(x)):
-        if not ok[t]:
-            continue
-        if coef is None or (t - min_train) % step == 0:
-            if t >= min_train:
-                m = ok.copy()
-                m[t:] = False
-                if m.sum() >= 80:
-                    A = np.column_stack([np.ones(int(m.sum())), X[m]])
-                    coef, *_ = np.linalg.lstsq(A, x[m], rcond=None)
-        if coef is not None and t > min_train:
-            out[t] = np.exp(0.5 * (coef[0] + X[t] @ coef[1:]))
+    """sigma_hat[t] strictly causal, from hodlod's HAR fitted on data < t.
+
+    Delegates the estimation to hodlod.vol.HAR instead of re-implementing the design
+    matrix here: the library is the tested object and must be the one that runs.
+    The model is refitted every `step` days on an expanding window that never
+    includes day t, and predict() is called on the prefix only.
+    """
+    var = np.asarray(var, float)
+    n = len(var)
+    out = np.full(n, np.nan)
+    model, refit_at = None, None
+    for t in range(min_train, n):
+        if model is None or t >= refit_at:
+            model = HAR().fit(var[:t])
+            refit_at = t + step
+        pred = model.predict(var[:t])
+        if len(pred) and np.isfinite(pred[-1]) and pred[-1] > 0:
+            out[t] = float(np.sqrt(pred[-1]))
     return out
 
 
@@ -190,10 +190,9 @@ def realtime_rows(sym: str, days: int = 730) -> pd.DataFrame:
         rh, rl = -np.inf, np.inf
         for k in range(len(g) - 1):
             rh, rl = max(rh, hi[k]), min(rl, lo[k])
-            S = s * np.sqrt(max(1 - F[k], 1e-6))
             rows.append({"date": day, "slot": k, "sigma": s, "F": F[k],
-                         "p_hi": float(2 * norm.cdf((rh - cl[k]) / S) - 1),
-                         "p_lo": float(2 * norm.cdf((cl[k] - rl) / S) - 1),
+                         "p_hi": p_final_now(cl[k], rh, rl, s, F[k], "high"),
+                         "p_lo": p_final_now(cl[k], rh, rl, s, F[k], "low"),
                          "d_hi": (rh - cl[k]) / s, "d_lo": (cl[k] - rl) / s,
                          "y_hi": int(rh >= fh - 1e-12), "y_lo": int(rl <= fl + 1e-12)})
     return pd.DataFrame(rows)
@@ -210,7 +209,7 @@ def brier_table(rt: pd.DataFrame, train_frac: float = 0.6) -> dict:
         bs_m = float(np.mean((te[f"p_{side}"].values - te[f"y_{side}"].values) ** 2))
         bs_b = float(np.mean((pb - te[f"y_{side}"].values) ** 2))
         out[side] = {"brier_model": bs_m, "brier_clim": bs_b,
-                     "bss": float(1 - bs_m / bs_b) if bs_b > 0 else np.nan,
+                     "bss": brier_skill(te[f"y_{side}"].values, te[f"p_{side}"].values, pb),
                      "base_rate": float(te[f"y_{side}"].mean())}
     bins = np.linspace(0, 1, 11)
     idx = np.clip(np.digitize(te.p_hi.values, bins) - 1, 0, 9)
