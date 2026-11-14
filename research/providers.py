@@ -398,12 +398,24 @@ def build_coverage_report(roots=("ES", "NQ"), interval: str = "1min") -> dict:
     return report
 
 
+def print_report(rep: dict) -> None:
+    """Compact human report. The banner is printed exactly once, at the end."""
+    print(f"coverage report, interval={rep['interval']}")
+    for prov, per_root in rep["providers"].items():
+        for root, c in per_root.items():
+            span = f"{c['start']} -> {c['end']}" if c["n_bars"] else "no data"
+            print(f"  {prov:9s} {root:3s} bars={c['n_bars']:>7} "
+                  f"futures={'yes' if c['is_futures'] else 'NO '} {span}")
+            for note in c["notes"]:
+                print(f"            - {note}")
+    print(f"futures available: {rep['futures_available']}")
+    if not rep["futures_available"]:
+        print(PROXY_BANNER)
+
+
 if __name__ == "__main__":
     import sys
     if "--coverage" in sys.argv:
-        rep = build_coverage_report()
-        print(json.dumps(rep, indent=2, default=str))
-        if not rep["futures_available"]:
-            print(PROXY_BANNER)
+        print_report(build_coverage_report())
     else:
         print(__doc__)
