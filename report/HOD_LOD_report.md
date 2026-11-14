@@ -15,8 +15,8 @@ Working document. Code: `hodlod/`. Self-tests: `python -m hodlod.selftest` (21/2
 > | Arcsine on the raw clock | **rejected** (χ² 34.5 / 53.5 / 108.8) | the null is false |
 > | Arcsine in volatility time | χ² reduced by 40%, KS ÷ 2.6 | better, but **still rejected** |
 > | `P(running HOD = final)` vs hourly climatology | **BSS +0.33 to +0.39** | the formula genuinely predicts |
-> | Walk-forward backtest, 1,190 trades | gross **+0.0236 R**, cost **0.0313 R**, net **−0.0076 R** | real edge, **below friction** |
-> | DSR (90 registered trials) | **0.002** | nothing proven |
+> | Walk-forward backtest, 521 trades | gross **+0.0496 R**, cost **0.0302 R**, net **+0.0194 R** | positive, **not significant** |
+> | DSR (90 registered trials) | **0.012** | nothing proven |
 >
 > Consequence for section 11: the estimate "25–40% chance of a real edge" was the right
 > range, and the hard point is not the signal but the **cost per unit of risk**: the

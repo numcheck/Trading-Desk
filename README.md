@@ -6,9 +6,11 @@ Quantitative intraday research on **ES** (S&P 500 futures) and **NQ** (Nasdaq 10
 
 ## Where the HOD and the LOD form — statistical study and backtest
 
-> **Verdict in one line:** the statistical model is good, the trading edge is real but
-> **smaller than the fees**. Gross expectancy **+0.024 R** per trade, round-trip cost
-> **0.031 R**, net **−0.008 R** over 1,190 out-of-sample trades.
+> **Verdict in one line:** the statistical model holds; the trading edge is positive but
+> **statistically indistinguishable from zero**. Gross expectancy **+0.050 R** per trade,
+> round-trip cost **0.030 R**, net **+0.019 R** over 521 out-of-sample trades — DSR 0.012,
+> permutation p = 0.30, bootstrap CI **[−39.7, +52.5] R**. On ES at three ticks the net
+> falls to **+0.0004 R**: the edge is real but smaller than the friction.
 
 📄 **[Read the full report (PDF, 11 pages)](research/out/HOD_LOD_ES_NQ.pdf)**
 
@@ -29,7 +31,7 @@ and tests it honestly.
 | Arcsine law (clock) | — | **rejected** (χ² 34–109) | the market concentrates more at the open |
 | Arcsine law (vol time) | — | KS ÷ 2.6, **still rejected** | better, but not enough |
 | `P(running HOD = final)` | — | **BSS +0.33 to +0.39** | the formula genuinely predicts |
-| Walk-forward backtest | — | **−0.0076 R net** | gross positive, under the friction |
+| Walk-forward backtest | — | **+0.019 R net** | positive, but not significant |
 
 ![Timing of the high](research/out/fig/f_timing.png)
 
@@ -56,6 +58,9 @@ exactly the direction predicted by the discrete-monitoring bias.
   within 2 bp), not on futures. The costs applied are those of ES.
 - **No result is adjusted in favour of the strategy.** The ledger of the 90 tested
   configurations is in `research/out/results.json`.
+- **One trade per instrument per day.** Allowing duplicate entries on the same side
+  inflated the sample (1,190 trades) and turned a positive edge into a negative one.
+  Deduplicating is the honest convention: one directional bet is one observation.
 
 ### Structure
 
