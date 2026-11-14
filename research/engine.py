@@ -30,6 +30,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 
 COST_SIGMA = 0.016          # ES round-trip cost as a fraction of sigma_day
 N_SLOTS = 7
+MAX_PER_DAY = 1             # max entries per instrument per session (configurable)
 
 
 # ---------------------------------------------------------------- volatility
@@ -265,10 +266,22 @@ def simulate(rt: pd.DataFrame, bars: pd.DataFrame, k_tps, max_risk_sigma: float 
     return pd.DataFrame(recs)
 
 
-def pick(cand: pd.DataFrame, theta: float, kt: float) -> pd.DataFrame:
+def pick(cand: pd.DataFrame, theta: float, kt: float,
+         max_per_day: int = MAX_PER_DAY) -> pd.DataFrame:
+    """Entries above the threshold, then concurrency control.
+
+    Default: at most ONE trade per instrument per day, taken as the first valid
+    signal by (slot, side). Without this cap a single session can open several
+    positions on the same side, so one directional bet is counted as many
+    independent samples. Positions never overlap in time either, because every
+    trade is closed by the session close.
+    """
     sub = cand[cand.p >= theta].copy()
     if not len(sub):
         return sub
+    sub = sub.sort_values(["date", "slot", "side"])
+    if max_per_day is not None and max_per_day > 0:
+        sub = sub.groupby("date", sort=True).head(max_per_day)
     sub["net"] = sub[f"n_{kt}"]
     sub["gross"] = sub[f"g_{kt}"]
     sub["reason"] = sub[f"r_{kt}"]
@@ -292,7 +305,8 @@ def metrics(tr: pd.DataFrame) -> dict:
             "expectancy_pct_R": float(100 * x.mean())}
 
 
-def walkforward_select(cand, rt, thetas, k_tps, min_train_days=150, min_trades=40):
+def walkforward_select(cand, rt, thetas, k_tps, min_train_days=150, min_trades=40,
+                       max_per_day: int = MAX_PER_DAY):
     days = np.array(sorted(rt.date.unique()))
     months = pd.Series(pd.to_datetime(days)).dt.to_period("M").values
     picks, oos = [], []
@@ -304,7 +318,7 @@ def walkforward_select(cand, rt, thetas, k_tps, min_train_days=150, min_trades=4
         best, score = None, -1e9
         for th in thetas:
             for kt in k_tps:
-                m = metrics(pick(cand[cand.date.isin(past_days)], th, kt))
+                m = metrics(pick(cand[cand.date.isin(past_days)], th, kt, max_per_day))
                 if m["n"] < min_trades:
                     continue
                 sc = m["mean_R"] * np.sqrt(m["n"])
@@ -313,7 +327,7 @@ def walkforward_select(cand, rt, thetas, k_tps, min_train_days=150, min_trades=4
         if best is None:
             continue
         picks.append({"month": str(mo), "theta": best[0], "k_tp": best[1]})
-        t = pick(cand[cand.date.isin(test_days)], best[0], best[1])
+        t = pick(cand[cand.date.isin(test_days)], best[0], best[1], max_per_day)
         if len(t):
             oos.append(t)
     return (pd.concat(oos) if oos else pd.DataFrame()), picks
