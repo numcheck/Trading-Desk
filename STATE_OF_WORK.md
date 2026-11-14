@@ -123,3 +123,29 @@ at some point; it must not be written to any file, and it should be treated as l
 .venv/bin/python -m research.engine     # study + backtest + Monte-Carlo
 .venv/bin/python -m research.report     # PDF + figures
 ```
+
+## Phase 2 — started (uncommitted caveat resolved into this note)
+
+`research/providers.py` now exists: `DataProvider` protocol, `FinzDataProvider`
+(official SDK, `/v1/futures/{roots,contracts,daily,bars}`, key from `FINZDATA_API_KEY`
+only), `LocalFileProvider` (`data/raw/`, column map in `data/raw/column_map.json`),
+`YahooProvider` (proxy, loud banner), `resample_bars`, `validate_bars`,
+`build_coverage_report`, and `python -m research.providers --coverage`.
+
+**Known defect, not fixed:** the `--coverage` output repeats the PROXY banner several
+times instead of once. The JSON payload is correct; the printing path is wrong. Fix by
+printing the report first and the banner once, outside any formatting helper.
+
+**Verified against the live API, without credentials:**
+`GET https://api.finzdata.com/v1/me` returns 401 with
+`invalid or missing API key`. The published OpenAPI document lists
+`/v1/futures/roots`, `/v1/futures/contracts?root=`, `/v1/futures/daily?root=&continuous=`,
+`/v1/futures/bars?root=&interval=`. Intraday is available from February 2007 for 139
+markets, timestamps are bar START in US Eastern.
+**A free key covers only the last 30 days and 1,000 calls/day**, which cannot support
+the five-year (2021→present) requirement. Five years needs a paid plan.
+
+**Not done in Phase 2:** contract roll by volume with recorded roll dates, RTH +
+overnight session construction from 1-minute bars, DST/holiday/half-day calendar,
+`bar_minutes`/`slots` parameterisation of the engine (still 7 hourly slots), Parquet
+cache for futures bars.
