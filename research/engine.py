@@ -33,6 +33,15 @@ COST_SIGMA = 0.016          # ES round-trip cost as a fraction of sigma_day
 N_SLOTS = 7
 MAX_PER_DAY = 1             # max entries per instrument per session (configurable)
 
+# Instrument economics. sigma_pts is the typical RTH sigma used to convert a tick
+# count into a fraction of sigma; the backtest is run on ETF proxies, so the cost is
+# expressed in the units of the FUTURE being imitated, then applied to the proxy.
+INSTRUMENTS = {
+    "ES": {"tick": 0.25, "tick_value": 12.5, "point_value": 50.0, "sigma_pts": 31.0},
+    "NQ": {"tick": 0.25, "tick_value": 5.0, "point_value": 20.0, "sigma_pts": 300.0},
+}
+COST_TICKS = (1.5, 2.0, 3.0)
+
 
 # ---------------------------------------------------------------- volatility
 def parkinson_var(d: pd.DataFrame) -> np.ndarray:
@@ -378,6 +387,36 @@ def deflated_sharpe(sr, T, n_trials, sr_std, skew=0.0, kurt=3.0):
     return {"sr0": sr0, "dsr": float(norm.cdf((sr - sr0) * np.sqrt(max(T - 1, 1)) / den))}
 
 
+# ---------------------------------------------------------------- costs
+def cost_scenarios(oos: pd.DataFrame, instrument: str = "ES",
+                   extra_stop_ticks: float = 1.0) -> list[dict]:
+    """Net expectancy in R under round-trip cost scenarios, plus stop slippage.
+
+    The blotter stores cost_R at the base scenario (COST_SIGMA of sigma_day), so the
+    per-trade cost scales linearly with the cost fraction:
+        cost_R(t) = cost_R_base * f(t) / f(base),   f = ticks * tick_size / sigma_pts
+    One extra tick is charged on stop exits only: a stop is a market order into a
+    moving book, a take-profit is a limit order that either fills or does not.
+    """
+    spec = INSTRUMENTS[instrument]
+    base = COST_SIGMA
+    stop = (oos.reason.values == "stop").astype(float)
+    sr = oos.cost_R.values / base                       # s/R, recovered per trade
+    rows = []
+    for ticks in COST_TICKS:
+        frac = ticks * spec["tick"] / spec["sigma_pts"]
+        cost = frac * sr
+        slip = stop * (extra_stop_ticks * spec["tick"] / spec["sigma_pts"]) * sr
+        net = oos.gross.values - cost - slip
+        rows.append({"instrument": instrument, "ticks_rt": ticks,
+                     "cost_fraction_sigma": float(frac),
+                     "cost_R": float(cost.mean()), "stop_slip_R": float(slip.mean()),
+                     "gross_mean_R": float(oos.gross.mean()),
+                     "net_mean_R": float(net.mean()), "net_total_R": float(net.sum()),
+                     "hit": float(np.mean(net > 0)), "cost_ticks_eq": float(frac * spec["sigma_pts"] / spec["tick"])})
+    return rows
+
+
 # ---------------------------------------------------------------- main
 THETAS = [0.4, 0.5, 0.6, 0.7, 0.8]
 K_TPS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
@@ -443,6 +482,10 @@ def main():
         sweep_r = [s["mean_R"] for s in res["sweep"]]
         res["dsr"] = deflated_sharpe(m["sharpe_trade"], m["n"],
                                      len(THETAS) * len(K_TPS) * 3, float(np.std(sweep_r)))
+        res["cost_scenarios"] = {k: cost_scenarios(oos, k) for k in INSTRUMENTS}
+        for k, rows in res["cost_scenarios"].items():
+            line = " | ".join(f"{r['ticks_rt']:g}t: {r['net_mean_R']:+.4f}R" for r in rows)
+            print(f"  cost scenarios {k}: {line}")
         res["freq_signal"] = {
             "n_days_total": int(len(set(oos.date))),
             "n_trades": int(len(oos)),
