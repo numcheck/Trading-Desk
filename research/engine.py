@@ -23,7 +23,7 @@ import pandas as pd
 from scipy.stats import chi2, kstest, norm
 
 from hodlod.evaluate import block_bootstrap_ci, brier, brier_skill
-from hodlod.realtime import p_final_now
+from hodlod.realtime import IsotonicCalibrator, p_final_now
 from hodlod.vol import HAR
 from research.data import daily, sessions_1h
 
@@ -224,6 +224,43 @@ def brier_table(rt: pd.DataFrame, train_frac: float = 0.6) -> dict:
                             "obs": float(rt[rt.slot == k].y_hi.mean()),
                             "pred": float(rt[rt.slot == k].p_hi.mean())}
                            for k in sorted(rt.slot.unique())]
+    return out
+
+
+# ---------------------------------------------------------------- skill
+def skill_vs_diffusion(rt: pd.DataFrame, train_frac: float = 0.6,
+                       slots: tuple = (0, 1, 3, 4, 5)) -> dict:
+    """Brier skill of the calibrated model against the raw diffusion formula.
+
+    The reported +0.33 to +0.39 beats a per-slot climatology, which is a weak
+    reference: the base rate itself rises towards 1 late in the session. The honest
+    benchmark is the raw diffusion probability, which is exactly what the calibrated
+    model is supposed to improve. Anything above zero is real skill on top of the theory.
+
+    Fixed decision times (ET) and their hourly slot: 10:00 -> 0, 11:00 -> 1,
+    12:30 -> 3, 14:00 -> 4, 15:00 -> 5 (each is the close of that bar).
+    Calibration is fitted on the training period only and applied out of sample.
+    """
+    days = np.array(sorted(rt.date.unique()))
+    cut = days[int(len(days) * train_frac)]
+    tr, te = rt[rt.date < cut], rt[rt.date >= cut]
+    out = {"cut": str(pd.Timestamp(cut).date()), "n_train": int(len(tr)),
+           "n_test": int(len(te))}
+    for side in ("hi", "lo"):
+        cal = IsotonicCalibrator().fit(tr[f"p_{side}"].values, tr[f"y_{side}"].values)
+        rows = []
+        for k in slots:
+            a = te[te.slot == k]
+            if len(a) < 30:
+                continue
+            y = a[f"y_{side}"].values
+            p_raw = a[f"p_{side}"].values
+            p_cal = cal.predict(p_raw)
+            rows.append({"slot": int(k), "n": int(len(a)),
+                         "brier_raw": float(brier(y, p_raw)),
+                         "brier_cal": float(brier(y, p_cal)),
+                         "bss_cal_vs_raw": float(brier_skill(y, p_cal, p_raw))})
+        out[side] = rows
     return out
 
 
@@ -451,6 +488,11 @@ def main():
         res["realtime"][sym] = b
         print(f"     Brier_hi model={b['hi']['brier_model']:.4f} clim={b['hi']['brier_clim']:.4f} "
               f"BSS={b['hi']['bss']:+.4f}")
+        sk = skill_vs_diffusion(rt)
+        res.setdefault("skill_vs_diffusion", {})[sym] = sk
+        hi = sk["hi"]
+        print("     BSS calibrated vs diffusion: " + " | ".join(
+            f"{r['slot']}: {r['bss_cal_vs_raw']:+.3f}" for r in hi))
         bars, _ = sessions_1h(sym)
         cands[sym] = simulate(rt, bars, K_TPS)
         cands[sym].to_pickle(OUT / f"cand_{sym}.pkl")
