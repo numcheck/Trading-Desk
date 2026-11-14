@@ -1,107 +1,106 @@
 # Trading-Desk
 
-Recherche quantitative intraday sur **ES** (S&P 500) et **NQ** (Nasdaq 100).
+Quantitative intraday research on **ES** (S&P 500 futures) and **NQ** (Nasdaq 100 futures).
 
 ---
 
-## Où se forment le HOD et le LOD — étude statistique et backtest
+## Where the HOD and the LOD form — statistical study and backtest
 
-> **Verdict en une phrase :** le modèle statistique est bon, l'edge de trading est
-> réel mais **plus petit que les frais**. Espérance brute **+0,024 R** par trade,
-> coût aller-retour **0,031 R**, net **−0,008 R** sur 1 190 trades hors échantillon.
+> **Verdict in one line:** the statistical model is good, the trading edge is real but
+> **smaller than the fees**. Gross expectancy **+0.024 R** per trade, round-trip cost
+> **0.031 R**, net **−0.008 R** over 1,190 out-of-sample trades.
 
-📄 **[Lire le rapport complet (PDF, 11 pages)](research/out/HOD_LOD_ES_NQ.pdf)**
+📄 **[Read the full report (PDF, 11 pages)](research/out/HOD_LOD_ES_NQ.pdf)**
 
-Le high-of-day (HOD) et le low-of-day (LOD) ne sont pas des niveaux mais des
-**argmax**. Ce dépôt traite les quatre sous-problèmes séparément — amplitude,
-localisation, timing, probabilité temps réel — puis les agrège en une stratégie
-et la teste honnêtement.
+The high-of-day (HOD) and the low-of-day (LOD) are not levels, they are **argmax
+times**. This repository treats the four sub-problems separately — amplitude,
+localization, timing, real-time probability — then aggregates them into a strategy
+and tests it honestly.
 
-![Amplitude contre le benchmark de diffusion](research/out/fig/f_amplitude.png)
+![Amplitude against the diffusion benchmark](research/out/fig/f_amplitude.png)
 
-### Les chiffres à retenir
+### The numbers that matter
 
-| Question | Théorie | Mesuré | Lecture |
+| Question | Theory | Measured | Reading |
 |---|---|---|---|
-| Amplitude `E[range]/σ` | 1,596 | **1,820** | le marché parcourt 14 % de plus que la diffusion |
-| Multiplicateur d'amplitude q25→q95 | 1,00 | **1,06–1,12** | une seule constante `κ ≈ 1,09` corrige tout |
-| `P(amplitude dans [q25,q75])` | 50 % | **50,3 %** | calibré |
-| Loi de l'arcsinus (horloge) | — | **rejetée** (χ² 34–109) | le marché se concentre plus à l'ouverture |
-| Loi de l'arcsinus (temps de vol) | — | KS ÷ 2,6, **toujours rejetée** | mieux, mais insuffisant |
-| `P(HOD courant = final)` | — | **BSS +0,33 à +0,39** | la formule prédit réellement |
-| Backtest walk-forward | — | **−0,0076 R net** | brut positif, sous la friction |
+| Amplitude `E[range]/σ` | 1.596 | **1.820** | the market travels 14% more than diffusion |
+| Amplitude multiplier q25→q95 | 1.00 | **1.06–1.12** | a single constant `κ ≈ 1.09` fixes it |
+| `P(amplitude in [q25,q75])` | 50% | **50.3%** | calibrated |
+| Arcsine law (clock) | — | **rejected** (χ² 34–109) | the market concentrates more at the open |
+| Arcsine law (vol time) | — | KS ÷ 2.6, **still rejected** | better, but not enough |
+| `P(running HOD = final)` | — | **BSS +0.33 to +0.39** | the formula genuinely predicts |
+| Walk-forward backtest | — | **−0.0076 R net** | gross positive, under the friction |
 
-![Timing du high](research/out/fig/f_timing.png)
+![Timing of the high](research/out/fig/f_timing.png)
 
-La question « combien de fois le marché fait-il ce qu'on calcule » a sa propre
-section dans le PDF. Extrait, sur les 370 séances exploitables (σ̂ disponible) :
+The question "how often does the market do what we compute" has its own section in
+the PDF. Excerpt, over the 370 usable sessions (σ available):
 
-| Le HOD est-il déjà final à… | Prédit | Observé |
+| Is the HOD already final at… | Predicted | Observed |
 |---|---|---|
-| 10:30 | 34,7 % | **35,1 %** |
-| 12:30 | 49,1 % | **56,5 %** |
-| 15:30 | 76,9 % | **81,8 %** |
+| 10:30 | 34.7% | **35.1%** |
+| 12:30 | 49.1% | **56.5%** |
+| 15:30 | 76.9% | **81.8%** |
 
-L'écart est systématiquement négatif : le modèle est **légèrement sous-confiant**,
-exactement la direction prédite par le biais de monitoring discret.
+The gap is systematically negative: the model is **slightly under-confident**,
+exactly the direction predicted by the discrete-monitoring bias.
 
-![Courbe hors échantillon](research/out/fig/f_equity.png)
+![Out-of-sample curve](research/out/fig/f_equity.png)
 
-### Ce que le test ne dit pas
+### What the test does not say
 
-- **Granularité.** La source gratuite plafonne l'intraday à **730 jours** (5/15/30 min :
-  60 jours seulement). Le backtest est donc horaire. Un déclencheur à la minute
-  aurait un timing d'entrée très différent : c'est la limite principale.
-- **Instruments.** Le backtest tourne sur SPY/QQQ/IWM (proxies dont le OHLC est
-  validé à 2 bp près), pas sur les futures. Les coûts appliqués sont ceux d'ES.
-- **Aucun résultat n'est ajusté en faveur de la stratégie.** Le registre des
-  90 configurations testées est dans `research/out/results.json`.
+- **Granularity.** The free source caps intraday history at **730 days** (5/15/30 min:
+  60 days only). The backtest is therefore hourly. A minute-level trigger would have a
+  very different entry timing: this is the main limitation.
+- **Instruments.** The backtest runs on SPY/QQQ/IWM (proxies whose OHLC is validated to
+  within 2 bp), not on futures. The costs applied are those of ES.
+- **No result is adjusted in favour of the strategy.** The ledger of the 90 tested
+  configurations is in `research/out/results.json`.
 
 ### Structure
 
 ```
-hodlod/            Librairie théorique (aucune dépendance aux données)
+hodlod/            Theory library (no dependency on the data)
 ├── vol.py           Parkinson, Garman-Klass, Rogers-Satchell, Yang-Zhang,
-│                    profil saisonnier, HAR-RV, CARR(1,1) quasi-ML
-├── amplitude.py     benchmark demi-normal, GPD/POT, régression quantile, boosting
-├── timing.py        lois de l'arcsinus, temps de volatilité, PIT, risques concurrents
-├── realtime.py      probabilité de survie, barrières à deux côtés, calibration
-├── levels.py        niveaux de confluence + placebo à distance appariée
-├── evaluate.py      walk-forward purgé, Brier, CRPS, DSR, bootstrap par blocs
-└── selftest.py      21 vérifications Monte-Carlo des formules fermées
+│                    seasonal profile, HAR-RV, CARR(1,1) quasi-ML
+├── amplitude.py     half-normal benchmark, GPD/POT, quantile regression, boosting
+├── timing.py        arcsine laws, volatility time, PIT, competing risks
+├── realtime.py      survival probability, two-sided barriers, calibration
+├── levels.py        confluence levels + matched-distance placebo
+├── evaluate.py      purged walk-forward, Brier, CRPS, DSR, block bootstrap
+└── selftest.py      21 Monte-Carlo checks of the closed forms
 
-research/          Pipeline empirique (télécharge des données publiques)
-├── data.py          Yahoo Finance + validation de la reconstruction horaire
-├── engine.py        étude + backtest walk-forward + Monte-Carlo
-├── report.py        génération du PDF
-└── out/             PDF, figures, résultats, blotter des trades
+research/          Empirical pipeline (downloads public data)
+├── data.py          Yahoo Finance + validation of the hourly reconstruction
+├── engine.py        study + walk-forward backtest + Monte-Carlo
+├── report.py        PDF generation
+└── out/             PDF, figures, results, trade blotter
 
 report/
-└── HOD_LOD_rapport.md   Rapport théorique : modèles, équations, hypothèses, limites
+└── HOD_LOD_report.md    Theory report: models, equations, assumptions, limits
 ```
 
-### Reproduire
+### Reproduce
 
 ```bash
 python3 -m venv --system-site-packages .venv
 .venv/bin/pip install -r requirements.txt
 
-.venv/bin/python -m hodlod.selftest      # 21 auto-tests Monte-Carlo
-.venv/bin/python -m research.data        # télécharge et valide les données
-.venv/bin/python -m research.engine      # étude + backtest + Monte-Carlo
-.venv/bin/python -m research.report      # régénère le PDF
+.venv/bin/python -m hodlod.selftest      # 21 Monte-Carlo self-tests
+.venv/bin/python -m research.data        # download and validate the data
+.venv/bin/python -m research.engine      # study + backtest + Monte-Carlo
+.venv/bin/python -m research.report      # regenerate the PDF
 ```
 
-Les données brutes ne sont pas versionnées (régénérables, et leur rediffusion
-n'est pas notre objet) : `research.data` les retélécharge et les met en cache
-dans `research/cache/`. Les **résultats**, eux, sont versionnés dans
-`research/out/` — un clone suffit pour lire le PDF sans rien exécuter.
+Raw data are not versioned (they are regenerable, and redistributing them is not our
+business): `research.data` re-downloads them and caches them in `research/cache/`. The
+**results** are versioned in `research/out/` — a clone is enough to read the PDF without
+running anything.
 
-### Méthode
+### Method
 
-Aucune fuite d'information : `σ` est un HAR en fenêtre expansive réestimé tous
-les 20 jours et n'utilise que les variances ≤ J−1 ; le backtest entre à
-l'ouverture de la barre suivant le signal ; le seuil et le take-profit sont
-choisis par walk-forward mensuel sur le passé uniquement. Contrôles de
-sur-ajustement : registre des essais, deflated Sharpe, test de permutation,
-bootstrap par blocs, cohérence du signe entre instruments.
+No information leakage: `σ` is a HAR on an expanding window re-estimated every 20 days,
+using only variances ≤ J−1; the backtest enters at the open of the bar following the
+signal; the threshold and the take-profit are chosen by monthly walk-forward on past
+data only. Overfitting controls: trial ledger, deflated Sharpe, permutation test, block
+bootstrap, sign consistency across instruments.

@@ -1,13 +1,13 @@
 """
-Mesure et prevision de la volatilite pour le modele HOD/LOD intraday.
+Volatility measurement and forecasting for the intraday HOD/LOD model.
 
-Deux objets distincts, souvent confondus :
-  - ESTIMATEURS de la variance du jour a partir de OHLC  -> Parkinson, Garman-Klass,
-    Rogers-Satchell, Yang-Zhang. Ce sont des instruments de MESURE, pas de prevision.
-  - PREVISEURS de la volatilite du jour J a partir de J-1..J-n -> HAR-RV, CARR, HEAVY.
+Two distinct objects, often confused:
+  - ESTIMATORS of the day's variance from OHLC -> Parkinson, Garman-Klass,
+    Rogers-Satchell, Yang-Zhang. These are MEASUREMENT instruments, not forecasts.
+  - FORECASTERS of day J's volatility from J-1..J-n -> HAR-RV, CARR, HEAVY.
 
-Le second nourrit le premier : on mesure RV proprement (estimateur de range) pour
-mieux prevoir (HAR), et on prevoit pour normaliser les amplitudes (section A).
+The second feeds on the first: we measure RV properly (range estimator) to forecast
+better (HAR), and we forecast in order to normalise amplitudes (section A).
 """
 from __future__ import annotations
 
@@ -19,40 +19,40 @@ LN2 = np.log(2.0)
 
 
 # ----------------------------------------------------------------------------
-# A1. Estimateurs de variance a partir de OHLC
+# A1. Variance estimators from OHLC
 # ----------------------------------------------------------------------------
 def parkinson_var(h, l):
-    """Parkinson (1980). Sans derive, sans gap. Var(range) = 4 ln2 * sigma^2 * T."""
+    """Parkinson (1980). No drift, no gap. Var(range) = 4 ln2 * sigma^2 * T."""
     h = np.asarray(h, float)
     l = np.asarray(l, float)
     return np.log(h / l) ** 2 / (4.0 * LN2)
 
 
 def garman_klass_var(o, h, l, c):
-    """Garman & Klass (1980), forme fermee. Sans derive, sans gap."""
+    """Garman & Klass (1980), closed form. No drift, no gap."""
     o, h, l, c = (np.asarray(x, float) for x in (o, h, l, c))
     return 0.5 * np.log(h / l) ** 2 - (2.0 * LN2 - 1.0) * np.log(c / o) ** 2
 
 
 def rogers_satchell_var(o, h, l, c):
-    """Rogers & Satchell (1991). Autorise une derive, mais pas de gap d'ouverture."""
+    """Rogers & Satchell (1991). Allows drift, but no opening gap."""
     o, h, l, c = (np.asarray(x, float) for x in (o, h, l, c))
     return np.log(h / c) * np.log(h / o) + np.log(l / c) * np.log(l / o)
 
 
 def yang_zhang_var(o, h, l, c, prev_c):
-    """Yang & Zhang (2000). Gere le gap d'ouverture (composante overnight).
+    """Yang & Zhang (2000). Handles the opening gap (overnight component).
 
     sigma2_YZ = sigma2_overnight + k * sigma2_open-to-close + (1-k) * sigma2_RS
-    k = 0.34 / (1.34 + (n+1)/(n-1))   -> poids du terme open-to-close
-    Rend une variance moyenne sur la fenetre (n >= 2).
+    k = 0.34 / (1.34 + (n+1)/(n-1))   -> weight of the open-to-close term
+    Returns an average variance over the window (n >= 2).
     """
     o, h, l, c, prev_c = (np.asarray(x, float) for x in (o, h, l, c, prev_c))
     n = len(o)
     if n < 2:
-        raise ValueError("Yang-Zhang requiert au moins 2 jours")
-    r_on = np.log(o / prev_c)              # rendement overnight
-    r_oc = np.log(c / o)                   # rendement open-to-close
+        raise ValueError("Yang-Zhang requires at least 2 days")
+    r_on = np.log(o / prev_c)              # overnight return
+    r_oc = np.log(c / o)                   # open-to-close return
     var_on = np.var(r_on, ddof=1)
     var_oc = np.var(r_oc, ddof=1)
     var_rs = np.mean(rogers_satchell_var(o, h, l, c))
@@ -61,56 +61,56 @@ def yang_zhang_var(o, h, l, c, prev_c):
 
 
 def ohlc_variance_table(df: pd.DataFrame) -> pd.DataFrame:
-    """df : colonnes open/high/low/close, index = dates. Ajoute les 4 estimateurs."""
+    """df: columns open/high/low/close, index = dates. Adds the 4 estimators."""
     out = df.copy()
     out["var_pk"] = parkinson_var(df.high, df.low)
     out["var_gk"] = garman_klass_var(df.open, df.high, df.low, df.close)
     out["var_rs"] = rogers_satchell_var(df.open, df.high, df.low, df.close)
-    out["var_rv_1m"] = np.nan  # a remplir avec la RV calculee sur barres 1 min
+    out["var_rv_1m"] = np.nan  # to be filled with RV computed on 1-minute bars
     out["var_cc"] = np.log(df.close / df.close.shift(1)) ** 2
     return out
 
 
 def efficiency_gain() -> dict:
-    """Efficacite asymptotique relative a l'estimateur close-to-close (=1).
+    """Asymptotic efficiency relative to the close-to-close estimator (=1).
 
-    Valeurs de la litterature ; elles supposent un MB sans derive, sans gap,
-    observation continue. Sur un vrai marche elles sont des bornes hautes.
+    Values from the literature; they assume a driftless Brownian motion with no
+    gap and continuous observation. On a real market they are upper bounds.
     """
     return {"close-to-close": 1.0, "parkinson": 5.2, "garman-klass": 7.4,
             "rogers-satchell": 8.0, "yang-zhang": 14.0}
 
 
 # ----------------------------------------------------------------------------
-# A2. Profil saisonnier intraday et temps de volatilite
+# A2. Intraday seasonal profile and volatility time
 # ----------------------------------------------------------------------------
 def seasonal_profile(returns_by_bucket: np.ndarray, weekdays: np.ndarray | None = None,
                      smooth: int = 3) -> np.ndarray:
-    """Profil de variance intraday normalise (somme = 1).
+    """Normalised intraday variance profile (sum = 1).
 
-    returns_by_bucket : shape (n_jours, n_buckets), rendements par bucket (1 min ou 5 min).
-    Etapes (style Andersen-Bollerslev 1998) :
-      1. centrer |r| par jour (retirer le niveau de vol du jour),
-      2. corriger l'effet jour de semaine,
-      3. moyenner en coupe, lisser, normaliser.
-    Le resultat s(t) verifie sum_b s_b = 1 et sert de densite de variance :
-    F(t) = cumsum(s) est la fraction de variance ecoulee = le "temps de volatilite".
+    returns_by_bucket: shape (n_days, n_buckets), returns per bucket (1 or 5 minutes).
+    Steps (Andersen-Bollerslev 1998 style):
+      1. centre |r| by day (remove the day's volatility level),
+      2. correct the weekday effect,
+      3. cross-sectional average, smooth, normalise.
+    The result s(t) satisfies sum_b s_b = 1 and serves as a variance density:
+    F(t) = cumsum(s) is the fraction of variance elapsed = "volatility time".
     """
     r = np.asarray(returns_by_bucket, float)
     r = np.where(np.isfinite(r), r, np.nan)
     a = np.abs(r)
-    # 1. niveau du jour
+    # 1. day level
     daily = np.nanmean(a, axis=1, keepdims=True)
     a = a / np.where(daily > 0, daily, np.nan)
-    # 2. effet jour de semaine
+    # 2. weekday effect
     if weekdays is not None:
         wd = np.asarray(weekdays)
         for d in np.unique(wd):
             m = np.nanmean(a[wd == d])
             if np.isfinite(m) and m > 0:
                 a[wd == d] = a[wd == d] / m
-    # 3. moyenne en coupe + lissage
-    prof = np.nanmean(a ** 2, axis=0)          # variance moyenne par bucket
+    # 3. cross-sectional average + smoothing
+    prof = np.nanmean(a ** 2, axis=0)          # average variance per bucket
     if smooth > 1:
         k = np.ones(smooth) / smooth
         prof = np.convolve(np.r_[prof[smooth - 1:0:-1], prof, prof[-2:-smooth - 1:-1]],
@@ -120,12 +120,12 @@ def seasonal_profile(returns_by_bucket: np.ndarray, weekdays: np.ndarray | None 
 
 
 def vol_time(profile: np.ndarray) -> np.ndarray:
-    """F(t) : fraction de variance cumulee. F(0)=0, F(1)=1."""
+    """F(t): fraction of cumulative variance. F(0)=0, F(1)=1."""
     return np.cumsum(np.asarray(profile, float) / np.sum(profile))
 
 
 def seasonal_adjust(returns_by_bucket: np.ndarray, profile: np.ndarray) -> np.ndarray:
-    """Rendements deseasonnalises : r / s(t). Sert aux tests de dependance."""
+    """Deseasonalised returns: r / s(t). Used for dependence tests."""
     s = np.sqrt(np.asarray(profile, float))
     return np.asarray(returns_by_bucket, float) / np.where(s > 0, s, np.nan)
 
@@ -134,7 +134,7 @@ def seasonal_adjust(returns_by_bucket: np.ndarray, profile: np.ndarray) -> np.nd
 # A3. HAR-RV (Corsi 2009)
 # ----------------------------------------------------------------------------
 def _har_design(x: np.ndarray, lags=(1, 5, 22)) -> np.ndarray:
-    """x : log(RV) aligne sur t. Rend les colonnes [RV_t, moy_5, moy_22]."""
+    """x: log(RV) aligned on t. Returns columns [RV_t, mean_5, mean_22]."""
     s = pd.Series(x)
     cols = [s.shift(0)]
     for k in lags[1:]:
@@ -143,15 +143,15 @@ def _har_design(x: np.ndarray, lags=(1, 5, 22)) -> np.ndarray:
 
 
 class HAR:
-    """HAR-RV sur log(RV). RV_{t+1} = c + b1 RV_t + b2 RVbar_5 + b3 RVbar_22 + e.
+    """HAR-RV on log(RV). RV_{t+1} = c + b1 RV_t + b2 RVbar_5 + b3 RVbar_22 + e.
 
-    En log on stabilise l'heteroscedasticite ; la retransformation vers la variance
-    exige la correction de smearing exp(sigma_hat^2 / 2).
+    Taking logs stabilises heteroscedasticity; the transform back to variance
+    requires the smearing correction exp(sigma_hat^2 / 2).
 
-    Hypotheses : RV est un estimateur non biaise de la variance integree (pas de
-    microstructure noise, pas de sauts mal captures) ; les coefficients sont stables.
-    Rupture : changements de regime de vol (2020, 2022), biais de microstructure sur
-    barres 1 min, et surtout RV de la veille manquante les jours de demi-seance.
+    Assumptions: RV is an unbiased estimator of integrated variance (no
+    microstructure noise, no poorly captured jumps); coefficients are stable.
+    Where it breaks: volatility regime changes (2020, 2022), microstructure bias
+    on 1-minute bars, and above all a missing previous-day RV on half sessions.
     """
 
     def __init__(self, lags=(1, 5, 22), log: bool = True, eps: float = 1e-12):
@@ -179,7 +179,7 @@ class HAR:
         return self
 
     def predict(self, rv) -> np.ndarray:
-        """Prevision de RV_{t+1} pour chaque t (NaN si historique insuffisant)."""
+        """Forecast of RV_{t+1} for each t (NaN when history is insufficient)."""
         x = self._x(rv)
         X = _har_design(x, self.lags)
         out = np.full(len(x), np.nan)
@@ -203,11 +203,11 @@ def carr_filter(R: np.ndarray, omega: float, alpha: float, beta: float) -> np.nd
 
 
 def carr_nll(theta, R: np.ndarray, burn: int = 20, dist: str = "exp") -> float:
-    """Negative log-likelihood quasi-ML de CARR.
+    """CARR quasi-ML negative log-likelihood.
 
-    R_t = lambda_t * eps_t,  eps_t iid de moyenne 1.
+    R_t = lambda_t * eps_t,  eps_t iid with mean 1.
     - dist='exp'      : eps ~ Exp(1)   -> nll = sum(log lambda + R/lambda)
-    - dist='weibull'  : eps ~ Weibull(k) de moyenne 1 -> nll = sum(log lambda - log f_eps(R/lambda))
+    - dist='weibull'  : eps ~ Weibull(k) with mean 1 -> nll = sum(log lambda - log f_eps(R/lambda))
     """
     omega, alpha, beta = theta
     if omega <= 0 or alpha < 0 or beta < 0 or alpha + beta >= 0.9999:
@@ -219,32 +219,32 @@ def carr_nll(theta, R: np.ndarray, burn: int = 20, dist: str = "exp") -> float:
         return 1e12
     if dist != "exp":
         raise NotImplementedError(
-            "Seule la vraisemblance exponentielle est implementee. "
-            "Pour une Weibull de moyenne 1, remplacer la densite ci-dessous."
+            "Only the exponential likelihood is implemented. "
+            "For a Weibull with mean 1, replace the density below."
         )
-    # eps ~ Exp(1) : f(r|lam) = (1/lam) exp(-r/lam)
+    # eps ~ Exp(1): f(r|lam) = (1/lam) exp(-r/lam)
     return float(np.sum(np.log(lam) + r / lam))
 
 
 class CARR:
-    """CARR(1,1) : Chou (2005), JMCB 37(3), 561-582.
+    """CARR(1,1): Chou (2005), JMCB 37(3), 561-582.
 
-    Ce qu'il estime exactement : lambda_t = E[R_t | F_{t-1}], ou R_t = H_t - L_t
-    (range du jour), avec R_t = lambda_t * eps_t et eps de moyenne 1. Ce n'est PAS
-    une prevision de variance : c'est une prevision de l'AMPLITUDE du range.
-    La distribution conditionnelle complete suit : P(R_t <= r | F) = F_eps(r/lambda_t).
-    Pour eps ~ Exp(1) : q_alpha(R_t) = -lambda_t * ln(1-alpha).
+    What it estimates exactly: lambda_t = E[R_t | F_{t-1}], where R_t = H_t - L_t
+    (daily range), with R_t = lambda_t * eps_t and eps of mean 1. This is NOT a
+    variance forecast: it is a forecast of the AMPLITUDE of the range.
+    The full conditional distribution follows: P(R_t <= r | F) = F_eps(r/lambda_t).
+    For eps ~ Exp(1): q_alpha(R_t) = -lambda_t * ln(1-alpha).
 
-    Calibration : quasi-ML (les estimateurs restent convergents si eps n'est pas
-    exponentiel, a condition que E[eps]=1). Optimiser en log des parametres ou avec
-    des bornes ; la contrainte alpha+beta<1 garantit la stationnarite.
+    Calibration: quasi-ML (the estimators remain consistent if eps is not
+    exponential, provided E[eps]=1). Optimise in log parameters or with bounds;
+    the constraint alpha+beta<1 guarantees stationarity.
 
-    Hypotheses : la range est un bon proxy de la vol locale (Parkinson 1980) ;
-    la dynamique est lineaire en R (pas de seuil, pas d'asymetrie).
-    Ou ca casse : jours de gap/evenement (la range explose sans que lambda_t
-    l'anticipe), changements de regime lents (beta proche de 1 => sous-reaction),
-    et la non-linearite documentee par Chen, Gerlach & Lin (2008) qui proposent
-    une version a seuil (threshold CARR, estimation bayesiienne).
+    Assumptions: range is a good proxy for local volatility (Parkinson 1980); the
+    dynamics are linear in R (no threshold, no asymmetry).
+    Where it breaks: gap/event days (the range explodes without lambda_t
+    anticipating it), slow regime changes (beta close to 1 => under-reaction),
+    and the non-linearity documented by Chen, Gerlach & Lin (2008), who propose a
+    threshold version (threshold CARR, Bayesian estimation).
     """
 
     def __init__(self, dist: str = "exp", burn: int = 20):
@@ -260,7 +260,7 @@ class CARR:
                        method="L-BFGS-B",
                        bounds=[(1e-8, None), (0.0, 0.999), (0.0, 0.999)])
         if not res.success and res.fun >= 1e11:
-            raise RuntimeError(f"CARR: echec d'optimisation ({res.message})")
+            raise RuntimeError(f"CARR: optimisation failed ({res.message})")
         self.theta_ = res.x
         self.se_ = self._std_errors(R, res)
         return self
@@ -274,7 +274,7 @@ class CARR:
                 dp[i] = h
                 g[:, i] = (carr_nll(res.x + dp, R, self.burn) -
                            carr_nll(res.x - dp, R, self.burn)) / (2 * h)
-            # approximation BHHH : somme des gradients individuels
+            # BHHH approximation: sum of individual gradients
             H = g.T @ g
             cov = np.linalg.pinv(H)
             return np.sqrt(np.clip(np.diag(cov), 0, None))
@@ -298,11 +298,11 @@ class CARR:
         lam = np.asarray(lam, float)
         if dist == "exp":
             return lam * (-np.log1p(-np.asarray(q, float)))
-        raise NotImplementedError("implementer la loi de eps choisie")
+        raise NotImplementedError("implement the chosen law for eps")
 
 
 def realized_variance_1m(closes: np.ndarray, open_price: float | None = None) -> float:
-    """RV = somme des r^2 sur barres 1 min (en log). Sert de label pour HAR/CARR."""
+    """RV = sum of r^2 on 1-minute bars (in logs). Serves as label for HAR/CARR."""
     c = np.asarray(closes, float)
     if open_price is not None:
         c = np.r_[open_price, c]
@@ -311,8 +311,8 @@ def realized_variance_1m(closes: np.ndarray, open_price: float | None = None) ->
 
 
 def bipower_variation(closes: np.ndarray, open_price: float | None = None) -> float:
-    """BV = (pi/2) * sum |r_t| |r_{t-1}|. Estimateur robuste aux sauts
-    (Barndorff-Nielsen & Shephard 2006). RV - BV approx composante saut."""
+    """BV = (pi/2) * sum |r_t| |r_{t-1}|. Jump-robust estimator
+    (Barndorff-Nielsen & Shephard 2006). RV - BV approximates the jump component."""
     c = np.asarray(closes, float)
     if open_price is not None:
         c = np.r_[open_price, c]

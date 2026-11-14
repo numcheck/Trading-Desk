@@ -1,7 +1,7 @@
 """
-Genere les figures et le PDF final (reportlab + matplotlib).
+Generates the figures and the final PDF (reportlab + matplotlib).
 
-Lit research/out/results.json et les pickles de trades.
+Reads research/out/results.json and the trade pickles.
 """
 from __future__ import annotations
 
@@ -42,13 +42,13 @@ def fig_amplitude():
     for sym, c in (("ES=F", NAVY), ("NQ=F", RED)):
         R = np.array(RES["amplitude"][sym]["R_up"])
         ax[0].hist(R, bins=60, density=True, alpha=0.45, color=c,
-                   label=f"{sym} (n={len(R)})", range=(0, 4))
+                   label=f"{sym} (n={len(R):,})", range=(0, 4))
     x = np.linspace(0.001, 4, 400)
     ax[0].plot(x, 2 * norm.pdf(x) * (x > 0), color="k", lw=1.6,
-               label="demi-normal théorique")
-    ax[0].set_xlabel("R+ = (H-O)/σ  (unités de σ prévu)")
-    ax[0].set_ylabel("densité")
-    ax[0].set_title("A. Amplitude O→H contre le benchmark de diffusion")
+               label="theoretical half-normal")
+    ax[0].set_xlabel("R+ = (H-O)/σ  (units of forecast σ)")
+    ax[0].set_ylabel("density")
+    ax[0].set_title("A. O→H amplitude against the diffusion benchmark")
     ax[0].legend(fontsize=7)
     qs = RES["amplitude"]["ES=F"]["qs"]
     w = 0.38
@@ -58,8 +58,8 @@ def fig_amplitude():
     ax[1].axhline(1, color="k", lw=1)
     ax[1].set_xticks(xs)
     ax[1].set_xticklabels([f"q{int(q*100)}" for q in qs])
-    ax[1].set_ylabel("quantile empirique / quantile théorique")
-    ax[1].set_title("Multiplicateur d'amplitude par quantile")
+    ax[1].set_ylabel("empirical quantile / theoretical quantile")
+    ax[1].set_title("Amplitude multiplier by quantile")
     ax[1].legend(fontsize=8)
     fig.savefig(FIG / "f_amplitude.png")
     plt.close(fig)
@@ -70,23 +70,23 @@ def fig_timing():
     fig, ax = plt.subplots(1, 2, figsize=(10, 3.9))
     xs = np.arange(7)
     w = 0.27
-    ax[0].bar(xs - w, t["obs_high"], w, color=NAVY, label="observé")
-    ax[0].bar(xs, t["p_clock"], w, color=GREY, label="arcsinus (horloge)")
-    ax[0].bar(xs + w, t["p_vol"], w, color=GREEN, label="arcsinus (temps de vol)")
+    ax[0].bar(xs - w, t["obs_high"], w, color=NAVY, label="observed")
+    ax[0].bar(xs, t["p_clock"], w, color=GREY, label="arcsine (clock)")
+    ax[0].bar(xs + w, t["p_vol"], w, color=GREEN, label="arcsine (vol time)")
     ax[0].set_xticks(xs)
     ax[0].set_xticklabels(["9:30", "10:30", "11:30", "12:30", "13:30", "14:30", "15:30"],
                           fontsize=7, rotation=30)
-    ax[0].set_ylabel("fréquence du HOD")
-    ax[0].set_title("C. Où se forme le high (SPY, 491 séances)")
+    ax[0].set_ylabel("frequency of the HOD")
+    ax[0].set_title(f"C. Where the high forms (SPY, {t['n_sessions']} sessions)")
     ax[0].legend(fontsize=7)
     for sym, c in (("SPY", NAVY), ("QQQ", RED), ("IWM", GREEN)):
         s = RES["timing"][sym]
         ax[1].plot(np.cumsum(s["obs_high"]), marker="o", color=c, label=sym)
-    ax[1].plot(np.cumsum(t["p_clock"]), "--", color="k", lw=1.3, label="arcsinus")
-    ax[1].plot(np.cumsum(t["p_vol"]), ":", color=GREY, lw=1.6, label="arcsinus vol-time")
-    ax[1].set_xlabel("slot horaire")
-    ax[1].set_ylabel("CDF du HOD")
-    ax[1].set_title("CDF empirique vs loi de référence")
+    ax[1].plot(np.cumsum(t["p_clock"]), "--", color="k", lw=1.3, label="arcsine")
+    ax[1].plot(np.cumsum(t["p_vol"]), ":", color=GREY, lw=1.6, label="arcsine vol-time")
+    ax[1].set_xlabel("hourly slot")
+    ax[1].set_ylabel("CDF of the HOD")
+    ax[1].set_title("Empirical CDF vs the reference law")
     ax[1].legend(fontsize=7)
     fig.savefig(FIG / "f_timing.png")
     plt.close(fig)
@@ -98,20 +98,18 @@ def fig_calibration():
         rel = np.array(RES["realtime"][sym]["reliability_hi"])
         ax[0].plot(rel[:, 0], rel[:, 1], marker="o", ms=3, color=c, label=sym)
     ax[0].plot([0, 1], [0, 1], "k--", lw=1)
-    ax[0].set_xlabel("p annoncée : « le high courant est le final »")
-    ax[0].set_ylabel("fréquence observée")
-    ax[0].set_title("D. Fiabilité du modèle de diffusion (hors échantillon)")
+    ax[0].set_xlabel("stated p: 'the running high is the final one'")
+    ax[0].set_ylabel("observed frequency")
+    ax[0].set_title("D. Reliability of the diffusion model (out of sample)")
     ax[0].legend(fontsize=7)
-    t = RES["timing"]["SPY"]
-    slots = range(6)
-    obs = [RES["realtime"]["SPY"]["full_by_slot"][i]["obs"] for i in slots]
-    pred = [RES["realtime"]["SPY"]["full_by_slot"][i]["pred"] for i in slots]
-    ax[1].plot(list(slots), obs, marker="o", color=NAVY, label="observé")
-    ax[1].plot(list(slots), pred, marker="s", color=RED, label="prédit (formule)")
-    ax[1].set_xticks(list(slots))
+    obs = [RES["realtime"]["SPY"]["full_by_slot"][i]["obs"] for i in range(6)]
+    pred = [RES["realtime"]["SPY"]["full_by_slot"][i]["pred"] for i in range(6)]
+    ax[1].plot(range(6), obs, marker="o", color=NAVY, label="observed")
+    ax[1].plot(range(6), pred, marker="s", color=RED, label="predicted (formula)")
+    ax[1].set_xticks(list(range(6)))
     ax[1].set_xticklabels(["10:30", "11:30", "12:30", "13:30", "14:30", "15:30"], fontsize=7)
-    ax[1].set_ylabel("P(le high est déjà final)")
-    ax[1].set_title("La question « combien de fois » : prédit vs réalisé")
+    ax[1].set_ylabel("P(the high is already final)")
+    ax[1].set_title("The 'how often' question: predicted vs realised")
     ax[1].legend(fontsize=7)
     fig.savefig(FIG / "f_calib.png")
     plt.close(fig)
@@ -123,9 +121,9 @@ def fig_equity(oos):
     eq = np.cumsum(d.net.values)
     ax[0].plot(range(len(eq)), eq, color=NAVY, lw=1.3)
     ax[0].axhline(0, color="k", lw=0.8)
-    ax[0].set_xlabel("trade (ordre chronologique)")
-    ax[0].set_ylabel("R cumulés (net de coûts)")
-    ax[0].set_title(f"Walk-forward hors échantillon — {len(eq)} trades")
+    ax[0].set_xlabel("trade (chronological order)")
+    ax[0].set_ylabel("cumulative R (net of costs)")
+    ax[0].set_title(f"Out-of-sample walk-forward — {len(eq):,} trades")
     dd = np.maximum.accumulate(eq) - eq
     ax[1].fill_between(range(len(dd)), -dd, 0, color=RED, alpha=0.45)
     ax[1].set_xlabel("trade")
@@ -136,7 +134,7 @@ def fig_equity(oos):
 
 
 def fig_tp(cand_by_sym, split_frac=0.6):
-    """Espérance par trade en fonction du take-profit, IS vs OOS (split fixe)."""
+    """Expectancy per trade as a function of take-profit, IS vs OOS (fixed split)."""
     days = sorted(set(np.concatenate([c.date.unique() for c in cand_by_sym.values()])))
     cut = days[int(len(days) * split_frac)]
     kts = RES["meta"]["k_tps"]
@@ -161,9 +159,9 @@ def fig_tp(cand_by_sym, split_frac=0.6):
         ax.plot(kts, b, marker="o", ls="--", color=cols[th], alpha=0.6,
                 label=f"θ={th} (OOS)")
     ax.axhline(0, color="k", lw=1)
-    ax.set_xlabel("take-profit (multiple de R)")
-    ax.set_ylabel("espérance nette par trade (R)")
-    ax.set_title("Gestion de prise de profit : espérance selon le TP")
+    ax.set_xlabel("take-profit (multiple of R)")
+    ax.set_ylabel("net expectancy per trade (R)")
+    ax.set_title("Take-profit management: expectancy as a function of the TP")
     ax.legend(fontsize=6, ncol=2)
     fig.savefig(FIG / "f_tp.png")
     plt.close(fig)
@@ -174,12 +172,12 @@ def fig_mc():
     fig, ax = plt.subplots(1, 2, figsize=(10, 3.6))
     ax[0].hist(RES["mc"]["boot_dist"], bins=60, color=NAVY, alpha=0.75)
     ax[0].axvline(0, color=RED, lw=1.4)
-    ax[0].set_title("Monte-Carlo : P&L total bootstrapé (R)")
-    ax[0].set_xlabel("R cumulés")
+    ax[0].set_title("Monte-Carlo: bootstrapped total P&L (R)")
+    ax[0].set_xlabel("cumulative R")
     ax[1].hist(RES["mc"]["perm_dist"], bins=60, color=GREY, alpha=0.8)
     ax[1].axvline(RES["oos"]["total_R"], color=RED, lw=1.6)
-    ax[1].set_title(f"Null de permutation (p={RES['mc']['perm_p']:.3f})")
-    ax[1].set_xlabel("R cumulés sous H0")
+    ax[1].set_title(f"Permutation null (p={RES['mc']['perm_p']:.3f})")
+    ax[1].set_xlabel("cumulative R under H0")
     fig.savefig(FIG / "f_mc.png")
     plt.close(fig)
 
@@ -189,16 +187,16 @@ def fig_freq():
     labels, vals, nom = [], [], []
     for sym in ("ES=F", "NQ=F"):
         f = RES["freq_amp"][sym]
-        labels += [f"{sym} bande q25-q75", f"{sym} > q90", f"{sym} > q95"]
+        labels += [f"{sym} q25-q75 band", f"{sym} > q90", f"{sym} > q95"]
         vals += [f["band_hit"] * 100, f["above_q90"] * 100, f["above_q95"] * 100]
         nom += [50, 10, 5]
     xs = np.arange(len(labels))
-    ax.bar(xs - 0.2, vals, 0.4, color=NAVY, label="observé")
+    ax.bar(xs - 0.2, vals, 0.4, color=NAVY, label="observed")
     ax.bar(xs + 0.2, nom, 0.4, color=GREY, label="nominal (diffusion)")
     ax.set_xticks(xs)
     ax.set_xticklabels(labels, rotation=20, fontsize=7)
-    ax.set_ylabel("% des séances")
-    ax.set_title("Combien de fois le marché fait ce que le modèle annonce (amplitude)")
+    ax.set_ylabel("% of sessions")
+    ax.set_title("How often the market does what the model announces (amplitude)")
     ax.legend(fontsize=8)
     fig.savefig(FIG / "f_freq.png")
     plt.close(fig)
@@ -268,137 +266,136 @@ def build():
     doc = SimpleDocTemplate(str(OUT / "HOD_LOD_ES_NQ.pdf"), pagesize=A4,
                             leftMargin=2.0 * cm, rightMargin=2.0 * cm,
                             topMargin=1.8 * cm, bottomMargin=1.7 * cm,
-                            title="HOD/LOD ES-NQ — backtest 3 ans", author="Recherche quantitative")
+                            title="HOD/LOD ES-NQ — walk-forward backtest", author="Quantitative research")
     F = []
     A = RES["amplitude"]
     O = RES["oos"]
     M = RES["mc"]
-    # le drawdown n'a de sens que dans l'ordre CHRONOLOGIQUE (les trades OOS sont
-    # concatenes par symbole dans le pickle : on retrie avant de cumuler)
+    # the drawdown only makes sense in CHRONOLOGICAL order (the OOS trades are
+    # concatenated per symbol in the pickle: re-sort before cumulating)
     oos_chrono = pd.read_pickle(OUT / "oos_trades.pkl").sort_values(
         ["date", "slot"]).reset_index(drop=True)
     eq_all = np.cumsum(oos_chrono.net.values)
     DD_CHRONO = float(np.max(np.maximum.accumulate(eq_all) - eq_all))
 
-    # ---- couverture
-    F += [Spacer(1, 4 * cm), Paragraph("Où se forment le HOD et le LOD", s["title"]),
-          Paragraph("Étude statistique et backtest walk-forward sur ES / NQ", s["sub"]),
+    # ---- cover
+    F += [Spacer(1, 4 * cm), Paragraph("Where the HOD and the LOD form", s["title"]),
+          Paragraph("A statistical study and walk-forward backtest on ES / NQ", s["sub"]),
           Spacer(1, 1.2 * cm)]
-    cover = [["Données", "Gratuites (Yahoo Finance), sans clé API"],
-             ["Intraday", f"{RES['timing']['SPY']['n_sessions']} séances × 3 instruments "
+    cover = [["Data", "Free (Yahoo Finance), no API key"],
+             ["Intraday", f"{RES['timing']['SPY']['n_sessions']} sessions × 3 instruments "
                           f"({RES['timing']['SPY']['start']} → {RES['timing']['SPY']['end']})"],
-             ["Quotidien", f"{A['ES=F']['n_days']} séances ES & NQ "
-                           f"({A['ES=F']['start']} → {A['ES=F']['end']})"],
-             ["Backtest", f"{O['n']} trades hors échantillon, sélection walk-forward mensuelle"],
-             ["Verdict", f"espérance nette {O['mean_R']:+.4f} R par trade — "
+             ["Daily", f"{A['ES=F']['n_days']:,} sessions on ES & NQ "
+                       f"({A['ES=F']['start']} → {A['ES=F']['end']})"],
+             ["Backtest", f"{O['n']:,} out-of-sample trades, monthly walk-forward selection"],
+             ["Verdict", f"net expectancy {O['mean_R']:+.4f} R per trade — "
                          f"DSR {RES['dsr']['dsr']:.3f}"]]
-    F += [table([["Poste", "Couverture"]] + cover, [4.2 * cm, 13.0 * cm], size=8.5,
+    F += [table([["Item", "Coverage"]] + cover, [4.2 * cm, 13.0 * cm], size=8.5,
                 last_left=True),
           Spacer(1, 1.4 * cm),
-          Paragraph("Rapport généré automatiquement à partir de données publiques. "
-                    "Les chiffres sont ceux du code livré, reproductibles par "
-                    "<i>python -m research.engine</i> puis <i>python -m research.report</i>. "
-                    "Aucun résultat n'a été arrondi en faveur de la stratégie.", s["small"]),
+          Paragraph("Report generated automatically from public data. The figures are "
+                    "those of the shipped code, reproducible with "
+                    "<i>python -m research.engine</i> then <i>python -m research.report</i>. "
+                    "No result has been rounded in favour of the strategy.", s["small"]),
           PageBreak()]
 
-    # ---- résumé
-    F += [Paragraph("1. Résumé exécutif", s["h1"])]
+    # ---- summary
+    F += [Paragraph("1. Executive summary", s["h1"])]
     bss = np.mean([RES["realtime"][k]["hi"]["bss"] for k in ("SPY", "QQQ", "IWM")])
     F += [Paragraph(
-        f"<b>La statistique tient ; le trading reste sous le seuil de friction.</b> Le "
-        f"modèle de survie de maximum (formule de réflexion) bat une climatologie "
-        f"conditionnelle à l'heure avec un Brier Skill Score moyen de <b>{bss:+.3f}</b> "
-        f"sur trois instruments. Le backtest walk-forward du retournement au plus haut "
-        f"donne une espérance <b>brute de {O['gross_mean_R']:+.4f} R</b> par trade sur "
-        f"{O['n']} trades — donc un signal réel — mais un coût aller-retour de "
-        f"<b>{O['cost_R']:.4f} R</b>, soit {O['cost_R']/max(O['gross_mean_R'],1e-9):.2f} fois "
-        f"cette espérance. Net : {O['mean_R']:+.4f} R, Sharpe par trade "
-        f"{O['sharpe_trade']:+.3f}, DSR {RES['dsr']['dsr']:.3f}. Le résultat n'est pas "
-        f"« aucun signal » mais <b>« un signal trop petit pour les frais »</b> — une "
-        f"conclusion plus utile, et plus difficile à renverser.", s["body"])]
-    kp = [["Indicateur", "Valeur", "Lecture"],
-          ["Trades hors échantillon", f"{O['n']}", "walk-forward, 3 instruments"],
-          ["Taux de réussite", f"{O['hit']*100:.1f} %", "≈ hasard (50 %)"],
-          ["Espérance nette", f"{O['mean_R']:+.4f} R", "négative"],
-          ["Espérance brute", f"{O['gross_mean_R']:+.4f} R", "positive, mais < coûts"],
-          ["Coût moyen", f"{O['cost_R']:.4f} R", f"{O['cost_R']/max(O['gross_mean_R'],1e-9):.2f}× l'espérance brute"],
+        f"<b>The statistics hold; the trading stays below the friction threshold.</b> The "
+        f"maximum-survival model (reflection formula) beats a time-conditioned climatology "
+        f"with an average Brier Skill Score of <b>{bss:+.3f}</b> across three instruments. "
+        f"The walk-forward backtest of the high reversal yields a <b>gross expectancy of "
+        f"{O['gross_mean_R']:+.4f} R</b> per trade over {O['n']:,} trades — so a real signal — "
+        f"but a round-trip cost of <b>{O['cost_R']:.4f} R</b>, i.e. "
+        f"{O['cost_R']/max(O['gross_mean_R'],1e-9):.2f} times that expectancy. Net: "
+        f"{O['mean_R']:+.4f} R, per-trade Sharpe {O['sharpe_trade']:+.3f}, DSR "
+        f"{RES['dsr']['dsr']:.3f}. The result is not \"no signal\" but <b>\"a signal too "
+        f"small for the fees\"</b> — a more useful conclusion, and harder to overturn.",
+        s["body"])]
+    kp = [["Indicator", "Value", "Reading"],
+          ["Out-of-sample trades", f"{O['n']:,}", "walk-forward, 3 instruments"],
+          ["Hit rate", f"{O['hit']*100:.1f}%", "≈ chance (50%)"],
+          ["Net expectancy", f"{O['mean_R']:+.4f} R", "negative"],
+          ["Gross expectancy", f"{O['gross_mean_R']:+.4f} R", "positive, but < costs"],
+          ["Average cost", f"{O['cost_R']:.4f} R", f"{O['cost_R']/max(O['gross_mean_R'],1e-9):.2f}× the gross expectancy"],
           ["Profit factor", f"{O['profit_factor']:.3f}", "< 1"],
-          ["Drawdown max (chrono)", f"{DD_CHRONO:.1f} R", "sur la période"],
-          ["IC 95 % bootstrap", f"[{M['boot_ci'][0]:+.1f} ; {M['boot_ci'][1]:+.1f}] R", "contient 0"],
-          ["p(permutation)", f"{M['perm_p']:.3f}", "non significatif"],
-          ["DSR", f"{RES['dsr']['dsr']:.3f}", "≪ 0,95 : pas d'edge prouvé"]]
+          ["Max drawdown (chrono)", f"{DD_CHRONO:.1f} R", "over the period"],
+          ["95% bootstrap CI", f"[{M['boot_ci'][0]:+.1f}; {M['boot_ci'][1]:+.1f}] R", "contains 0"],
+          ["p(permutation)", f"{M['perm_p']:.3f}", "not significant"],
+          ["DSR", f"{RES['dsr']['dsr']:.3f}", "≪ 0.95: no proven edge"]]
     F += [table(kp, [5.0 * cm, 4.4 * cm, 8.0 * cm], size=8, highlight=3, last_left=True),
           Spacer(1, 0.3 * cm),
           Paragraph(
-              "Trois résultats positifs et solides, indépendants du backtest : "
-              "(i) l'amplitude RTH vaut <b>1,82 σ</b> en moyenne contre 1,596 prédit par "
-              "la diffusion — le marché parcourt 14 % de plus que le modèle ; "
-              "(ii) le multiplicateur d'amplitude est <b>quasi constant (1,06–1,12)</b> "
-              "au-delà du décile bas, ce qui rend la correction triviale ; "
-              "(iii) la loi de l'arcsinus en horloge brute est <b>rejetée</b> "
-              f"(χ² = {RES['timing']['SPY']['chi2_clock']:.1f} sur SPY) mais le passage "
-              "en temps de volatilité divise la distance KS par 2,6.", s["body"])]
+              "Three positive, solid results independent of the backtest: "
+              "(i) the RTH amplitude averages <b>1.82 σ</b> against 1.596 predicted by "
+              "diffusion — the market travels 14% more than the model; "
+              "(ii) the amplitude multiplier is <b>near-constant (1.06–1.12)</b> above the "
+              "low decile, which makes the correction trivial; "
+              "(iii) the arcsine law on the raw clock is <b>rejected</b> "
+              f"(χ² = {RES['timing']['SPY']['chi2_clock']:.1f} on SPY) but switching to "
+              "volatility time divides the KS distance by 2.6.", s["body"])]
 
-    # ---- données
-    F += [PageBreak(), Paragraph("2. Données et limites réelles de la source gratuite", s["h1"]),
+    # ---- data
+    F += [PageBreak(), Paragraph("2. Data and the real limits of the free source", s["h1"]),
           Paragraph(
-              "La demande portait sur 3 ans. La source gratuite ne le permet pas en "
-              "haute fréquence : les limites ci-dessous ont été mesurées, pas supposées. "
-              "Plutôt que de remplir des trous avec des données inventées, la couverture "
-              "réelle est utilisée et la granularité est choisie par sous-problème.", s["body"])]
-    lim = [["Intervalle", "Profondeur réelle", "Usage retenu"],
-           ["1 minute", "~25 jours", "non utilisé"],
-           ["5 / 15 / 30 minutes", "60 jours", "contrôle ponctuel"],
-           ["1 heure", "730 jours", "timing + temps réel + backtest"],
-           ["1 jour", "illimité", "amplitude, HAR, 6 ans"]]
+              "The request was for 3 years. The free source does not allow that at high "
+              "frequency: the limits below were measured, not assumed. Rather than filling "
+              "gaps with invented data, the real coverage is used and the granularity is "
+              "chosen per sub-problem.", s["body"])]
+    lim = [["Interval", "Real depth", "Use retained"],
+           ["1 minute", "~25 days", "not used"],
+           ["5 / 15 / 30 minutes", "60 days", "spot check"],
+           ["1 hour", "730 days", "timing + real time + backtest"],
+           ["1 day", "unlimited", "amplitude, HAR, 6 years"]]
     F += [table(lim, [4.2 * cm, 4.0 * cm, 9.2 * cm], size=8), Spacer(1, 0.25 * cm),
           Paragraph(
-              "Les barres horaires de SPY/QQQ/IWM sont reconstruites sur 09:30–16:00 et "
-              "<b>validées contre le OHLC quotidien de l'exchange</b> : le high est exact à "
-              "2 points de base près sur 99,2 % des séances, le low sur 97,6 %, et le ratio "
-              "de range médian vaut 1,000. La valeur du high/low est donc exacte ; seule "
-              "sa <i>datation</i> est quantifiée à l'heure. Une barre parasite à 16:00 "
-              "capturait les échanges post-clôture et a été supprimée.", s["body"]),
-          Paragraph("Discipline anti-look-ahead", s["h2"])]
-    F += [Paragraph("• σ(J) est un HAR en fenêtre <b>expansive</b>, réestimé tous les "
-                    "20 jours, qui n'utilise que les variances ≤ J−1.", s["bullet"]),
-          Paragraph("• Le profil saisonnier est estimé sur le passé glissant.", s["bullet"]),
-          Paragraph("• Le backtest entre à l'<b>ouverture de la barre suivante</b> le signal.", s["bullet"]),
-          Paragraph("• (seuil, take-profit) sont choisis par <b>walk-forward mensuel</b> sur "
-                    "le passé uniquement ; le mois évalué n'entre jamais dans la sélection.", s["bullet"]),
-          Paragraph("• Les coûts valent 1,6 % de σ par aller-retour (0,5 point d'ES sur "
-                    "31 points de σ), appliqués à chaque trade.", s["bullet"])]
+              "The hourly bars of SPY/QQQ/IWM are rebuilt over 09:30–16:00 and "
+              "<b>validated against the exchange's daily OHLC</b>: the high is exact to "
+              "within 2 basis points on 99.2% of sessions, the low on 97.6%, and the median "
+              "range ratio is 1.000. The value of the high/low is therefore exact; only "
+              "its <i>timing</i> is quantised to the hour. A spurious 16:00 bar captured "
+              "post-close trading and was removed.", s["body"]),
+          Paragraph("Anti-look-ahead discipline", s["h2"])]
+    F += [Paragraph("• σ(J) is a HAR on an <b>expanding</b> window, re-estimated every "
+                    "20 days, using only variances ≤ J−1.", s["bullet"]),
+          Paragraph("• The seasonal profile is estimated on rolling history.", s["bullet"]),
+          Paragraph("• The backtest enters at the <b>open of the bar following</b> the signal.", s["bullet"]),
+          Paragraph("• (threshold, take-profit) are chosen by <b>monthly walk-forward</b> on "
+                    "past data only; the evaluated month never enters the selection.", s["bullet"]),
+          Paragraph("• Costs are 1.6% of σ round trip (0.5 ES point out of a 31-point σ), "
+                    "applied to every trade.", s["bullet"])]
 
     # ---- amplitude
-    F += [PageBreak(), Paragraph("3. Amplitude : combien le marché parcourt", s["h1"])]
-    rows = [["Instrument", "n", "E[R+]", "théorique", "E[range/σ]", "théorique", "KS"]]
+    F += [PageBreak(), Paragraph("3. Amplitude: how far the market travels", s["h1"])]
+    rows = [["Instrument", "n", "E[R+]", "theory", "E[range/σ]", "theory", "KS"]]
     for sym in ("ES=F", "NQ=F"):
         a = A[sym]
-        rows.append([sym, a["n_days"], f"{a['mean_Rup']:.3f}", f"{a['theo_mean']:.3f}",
+        rows.append([sym, f"{a['n_days']:,}", f"{a['mean_Rup']:.3f}", f"{a['theo_mean']:.3f}",
                      f"{a['mean_range']:.3f}", f"{a['theo_range']:.3f}", f"{a['ks_Rup']:.3f}"])
     F += [img("f_amplitude.png"), Spacer(1, 0.2 * cm),
           table(rows, [2.6 * cm, 1.6 * cm, 2.2 * cm, 2.2 * cm, 2.6 * cm, 2.2 * cm, 1.8 * cm], size=7.8),
           Spacer(1, 0.2 * cm),
           Paragraph(
-              f"Le benchmark de diffusion (<i>H−O ~ |N(0,σ²T)|</i>) est rejeté au test KS "
-              f"(D = {A['ES=F']['ks_Rup']:.3f}, seuil 0,037 à 5 % pour n = {A['ES=F']['n_days']}), "
-              f"mais l'écart est <b>presque entièrement une mise à l'échelle</b> : le "
-              f"multiplicateur vaut 1,06 à 1,12 du décile 25 au quantile 95, et ne dévie "
-              f"qu'en queue basse (1,26 au décile 10). Autrement dit, le marché ne fait pas "
-              f"des amplitudes de forme différente : il fait des amplitudes plus grandes, "
-              f"et il évite les journées trop calmes (plancher de liquidité et de "
-              f"microstructure que la diffusion autorise mais que le marché n'offre pas).", s["body"]),
+              f"The diffusion benchmark (<i>H−O ~ |N(0,σ²T)|</i>) is rejected by the KS test "
+              f"(D = {A['ES=F']['ks_Rup']:.3f}, 5% threshold 0.037 for n = {A['ES=F']['n_days']:,}), "
+              f"but the deviation is <b>almost entirely a scaling</b>: the multiplier runs "
+              f"from 1.06 to 1.12 between the 25th decile and the 95th quantile, and deviates "
+              f"only in the lower tail (1.26 at the 10th decile). In other words, the market "
+              f"does not produce amplitudes of a different shape: it produces larger ones, "
+              f"and it avoids days that are too quiet (a liquidity and microstructure floor "
+              f"that diffusion allows but the market does not offer).", s["body"]),
           Paragraph(
-              "Conséquence pratique : une seule constante <b>κ ≈ 1,09</b> corrige le "
-              "benchmark. Toute la carte d'amplitude pré-ouverture doit être multipliée "
-              "par κ, sinon les zones de H et de L sont systématiquement 9 % trop étroites — "
-              "ce qui suffit à faire échouer un stop placé « juste au-delà » du haut attendu.", s["body"])]
+              "Practical consequence: a single constant <b>κ ≈ 1.09</b> corrects the "
+              "benchmark. The whole pre-open amplitude map must be multiplied by κ, "
+              "otherwise the H and L zones are systematically 9% too narrow — enough to "
+              "break a stop placed \"just beyond\" the expected high.", s["body"])]
 
     # ---- timing
-    F += [PageBreak(), Paragraph("4. Timing : à quelle heure se forment H et L", s["h1"]),
+    F += [PageBreak(), Paragraph("4. Timing: at what time H and L form", s["h1"]),
           img("f_timing.png"), Spacer(1, 0.2 * cm)]
-    rows = [["Instrument", "χ² horloge", "p", "χ² temps de vol", "p",
-             "KS PIT horloge", "KS PIT vol"]]
+    rows = [["Instrument", "χ² clock", "p", "χ² vol time", "p", "KS PIT clock", "KS PIT vol"]]
     for sym in ("SPY", "QQQ", "IWM"):
         t = RES["timing"][sym]
         rows.append([sym, f"{t['chi2_clock']:.1f}", f"{t['p_clock_test']:.4f}",
@@ -407,112 +404,111 @@ def build():
     F += [table(rows, [2.4 * cm, 2.6 * cm, 2.2 * cm, 3.2 * cm, 2.2 * cm, 2.8 * cm, 2.6 * cm], size=7.8),
           Spacer(1, 0.2 * cm),
           Paragraph(
-              f"La loi de l'arcsinus en horloge brute est <b>rejetée</b> sur les trois "
-              f"instruments. Le passage en temps de volatilité — c'est-à-dire remplacer "
-              f"<i>t</i> par la fraction de variance écoulée <i>F(t)</i> — divise la "
-              f"distance KS par 2,6 en moyenne (0,117 → 0,045 sur SPY) et améliore le χ² "
-              f"de 40 %, mais <b>ne sauve pas le modèle</b> : p = {RES['timing']['SPY']['p_vol_test']:.3f} "
-              f"sur SPY. Le marché concentre ses extrêmes à l'ouverture plus que ne le "
-              f"prédit n'importe quel changement de temps déterministe.", s["body"]),
+              f"The arcsine law on the raw clock is <b>rejected</b> on all three "
+              f"instruments. Switching to volatility time — replacing <i>t</i> with the "
+              f"fraction of variance elapsed <i>F(t)</i> — divides the KS distance by 2.6 "
+              f"on average (0.117 → 0.045 on SPY) and improves the χ² by 40%, but <b>does "
+              f"not save the model</b>: p = {RES['timing']['SPY']['p_vol_test']:.3f} on SPY. "
+              f"The market concentrates its extremes at the open more than any "
+              f"deterministic time change predicts.", s["body"]),
           Paragraph(
-              "C'est une nuance importante par rapport à la littérature : Mok, Lam & Li "
-              "(2000) ne rejettent pas le random walk sur le <i>S&amp;P 500 futures</i>. "
-              "Sur SPY/QQQ/IWM en 2024–2026, à résolution horaire, on le rejette. "
-              "Les deux résultats sont compatibles : instrument, période et granularité "
-              "diffèrent. La conclusion opérationnelle est que l'arcsinus reste un "
-              "<b>prior utile</b> (il place 20,5 % de masse dans la première heure) mais "
-              "qu'il sous-estime nettement la pointe d'ouverture.", s["body"])]
+              "This is an important nuance relative to the literature: Mok, Lam & Li "
+              "(2000) do not reject the random walk on <i>S&amp;P 500 futures</i>. On "
+              "SPY/QQQ/IWM over 2024–2026, at hourly resolution, it is rejected. Both "
+              "results are compatible: instrument, period and granularity differ. The "
+              "operational conclusion is that the arcsine law remains a <b>useful prior</b> "
+              "(it puts 20.5% of the mass in the first hour) but clearly understates the "
+              "opening spike.", s["body"])]
 
-    # ---- temps reel
-    F += [PageBreak(), Paragraph("5. Temps réel : combien de fois le marché fait ce qu'on calcule", s["h1"]),
+    # ---- real time
+    F += [PageBreak(), Paragraph("5. Real time: how often the market does what we compute", s["h1"]),
           img("f_calib.png"), Spacer(1, 0.2 * cm)]
-    rows = [["Instrument", "Brier modèle", "Brier climatologie", "BSS", "n test"]]
+    rows = [["Instrument", "Brier model", "Brier climatology", "BSS", "n test"]]
     for sym in ("SPY", "QQQ", "IWM"):
         r = RES["realtime"][sym]
         rows.append([sym, f"{r['hi']['brier_model']:.4f}", f"{r['hi']['brier_clim']:.4f}",
-                     f"{r['hi']['bss']:+.4f}", r["n_test"]])
+                     f"{r['hi']['bss']:+.4f}", f"{r['n_test']:,}"])
     F += [table(rows, [3.0 * cm, 3.4 * cm, 4.2 * cm, 2.6 * cm, 2.4 * cm], size=8),
           Spacer(1, 0.2 * cm),
           Paragraph(
-              "Le panneau de droite répond littéralement à la question posée : sur toutes "
-              "les séances où le marché est ouvert, à chaque heure de décision, quelle est "
-              "la fréquence observée de « le high courant est déjà le high final », "
-              "comparée à ce que le modèle annonce. L'écart est faible et l'ordre est "
-              "respecté : c'est le seul endroit du système où la théorie prédit "
-              "correctement le réel.", s["body"])]
-    rows = [["Heure de décision", "n séances", "P annoncée", "Fréquence observée", "Écart"]]
+              "The right-hand panel answers the question literally: over every session the "
+              "market is open, at each decision hour, what is the observed frequency of "
+              "\"the running high is already the final high\", compared with what the model "
+              "announces. The gap is small and the ordering is respected: this is the only "
+              "place in the system where the theory predicts reality correctly.", s["body"])]
+    rows = [["Decision time", "n sessions", "Stated P", "Observed frequency", "Gap"]]
     for r in RES["realtime"]["SPY"]["full_by_slot"]:
         rows.append([["10:30", "11:30", "12:30", "13:30", "14:30", "15:30"][r["slot"]],
-                     r["n"], f"{r['pred']*100:.1f} %", f"{r['obs']*100:.1f} %",
+                     f"{r['n']:,}", f"{r['pred']*100:.1f}%", f"{r['obs']*100:.1f}%",
                      f"{(r['pred']-r['obs'])*100:+.1f} pt"])
     F += [table(rows, [4.0 * cm, 2.6 * cm, 3.2 * cm, 4.4 * cm, 3.0 * cm], size=8),
           Spacer(1, 0.2 * cm),
           Paragraph(
-              "Le BSS de +0,33 à +0,39 est obtenu <b>contre une climatologie conditionnelle "
-              "à l'heure</b>, pas contre une constante : la comparaison est donc exigeante, "
-              "et la formule gagne largement. C'est la partie du système qui a de la valeur "
-              "— pour <i>savoir où on en est</i>, pas pour <i>gagner de l'argent directement</i>.", s["body"])]
+              "The BSS of +0.33 to +0.39 is obtained <b>against a time-conditioned "
+              "climatology</b>, not against a constant: the comparison is demanding, and "
+              "the formula wins clearly. This is the part of the system that has value — "
+              "for <i>knowing where we stand</i>, not for <i>making money directly</i>.",
+              s["body"])]
 
     # ---- backtest
     oos = pd.read_pickle(OUT / "oos_trades.pkl")
-    F += [PageBreak(), Paragraph("6. Backtest walk-forward", s["h1"]),
+    F += [PageBreak(), Paragraph("6. Walk-forward backtest", s["h1"]),
           Paragraph(
-              "Règle testée : à chaque heure de décision, si <i>p</i> (le plus haut courant "
-              "est le final) dépasse le seuil θ, on vend à l'ouverture de la barre suivante, "
-              "stop 0,08 σ au-dessus du plus haut courant, take-profit à k·R, sortie "
-              "forcée en fin de séance. Le côté long est traité symétriquement au plus bas. "
-              "θ et k sont choisis chaque mois sur tout le passé, puis appliqués au mois "
-              "suivant.", s["body"]),
+              "Rule tested: at each decision hour, if <i>p</i> (the running high is the "
+              "final one) exceeds the threshold θ, sell at the open of the next bar, stop "
+              "0.08 σ above the running high, take-profit at k·R, forced exit at the "
+              "session close. The long side is handled symmetrically at the running low. "
+              "θ and k are chosen each month on all past data, then applied to the "
+              "following month.", s["body"]),
           img("f_equity.png"), Spacer(1, 0.2 * cm),
           Paragraph(
-              f"Sur {O['n']} trades hors échantillon, le taux de réussite est de "
-              f"{O['hit']*100:.1f} % et le profit factor de {O['profit_factor']:.3f}. "
-              f"Mais le résultat central n'est pas là : l'espérance <b>brute</b> est "
-              f"<b>positive</b> ({O['gross_mean_R']:+.4f} R par trade) et le coût "
-              f"aller-retour ({O['cost_R']:.4f} R, soit {RES['meta']['cost_sigma']*100:.1f} % "
-              f"de σ) vaut <b>{O['cost_R']/max(O['gross_mean_R'],1e-9):.2f} fois</b> cette "
-              f"espérance. Autrement dit : <b>l'edge existe, il est simplement plus petit "
-              f"que la friction</b>. C'est exactement le motif des études pré-enregistrées "
-              f"2026 sur l'ouverture de range — « là où la cassure gagne quelque chose, "
-              f"elle le gagne dans le spread ». Ce n'est pas un échec de modèle, c'est un "
-              f"échec d'échelle : il faudrait un coût inférieur à 1 % de σ pour que le "
-              f"même signal soit rentable.", s["body"])]
-    dec = [["Décomposition", "n", "E[R] brut", "E[R] net", "Réussite"]]
-    for side, lab in (("long", "Côté long (au LOD)"), ("short", "Côté short (au HOD)")):
+              f"Over {O['n']:,} out-of-sample trades the hit rate is {O['hit']*100:.1f}% and "
+              f"the profit factor {O['profit_factor']:.3f}. But the central result is not "
+              f"there: the <b>gross</b> expectancy is <b>positive</b> "
+              f"({O['gross_mean_R']:+.4f} R per trade) and the round-trip cost "
+              f"({O['cost_R']:.4f} R, i.e. {RES['meta']['cost_sigma']*100:.1f}% of σ) is "
+              f"<b>{O['cost_R']/max(O['gross_mean_R'],1e-9):.2f} times</b> that expectancy. "
+              f"In other words: <b>the edge exists, it is simply smaller than the "
+              f"friction</b>. This is exactly the pattern of the 2026 pre-registered "
+              f"studies on the opening range — \"where the breakout earns something, it "
+              f"earns it in the spread\". This is not a model failure, it is a failure of "
+              f"scale: costs below 1% of σ would be needed for the same signal to be "
+              f"profitable.", s["body"])]
+    dec = [["Breakdown", "n", "E[R] gross", "E[R] net", "Hit rate"]]
+    for side, lab in (("long", "Long side (at the LOD)"), ("short", "Short side (at the HOD)")):
         sub = oos[oos.side == side]
-        dec.append([lab, len(sub), f"{sub.gross.mean():+.4f}", f"{sub.net.mean():+.4f}",
-                    f"{(sub.net > 0).mean()*100:.1f} %"])
+        dec.append([lab, f"{len(sub):,}", f"{sub.gross.mean():+.4f}", f"{sub.net.mean():+.4f}",
+                    f"{(sub.net > 0).mean()*100:.1f}%"])
     for sym in ("SPY", "QQQ", "IWM"):
         sub = oos[oos.symbol == sym]
-        dec.append([sym, len(sub), f"{sub.gross.mean():+.4f}", f"{sub.net.mean():+.4f}",
-                    f"{(sub.net > 0).mean()*100:.1f} %"])
+        dec.append([sym, f"{len(sub):,}", f"{sub.gross.mean():+.4f}", f"{sub.net.mean():+.4f}",
+                    f"{(sub.net > 0).mean()*100:.1f}%"])
     F += [Spacer(1, 0.15 * cm),
           table(dec, [5.0 * cm, 2.0 * cm, 2.8 * cm, 2.8 * cm, 2.8 * cm], size=7.8),
           Spacer(1, 0.15 * cm),
           Paragraph(
-              "La décomposition est instructive : le côté <b>long</b> (retournement depuis le "
-              "plus bas) est net <i>positif</i>, le côté <b>short</b> net négatif. Cet écart est "
-              "cohérent avec la prime de risque actions sur la période, mais il n'est pas "
-              "significatif (t ≈ 0,2) et il serait imprudent d'y voir autre chose qu'une "
-              "exposition directionnelle déguisée.", s["body"])]
+              "The breakdown is instructive: the <b>long</b> side (reversal from the low) is "
+              "net <i>positive</i>, the <b>short</b> side net negative. This gap is "
+              "consistent with the equity risk premium over the period, but it is not "
+              "significant (t ≈ 0.2) and it would be imprudent to see anything other than "
+              "disguised directional exposure.", s["body"])]
 
     # ---- TP
     cands = {s_: pd.read_pickle(OUT / f"cand_{s_}.pkl") for s_ in ("SPY", "QQQ", "IWM")}
     tp_out, cut = fig_tp(cands)
-    F += [PageBreak(), Paragraph("7. Gestion de prise de profit", s["h1"]),
+    F += [PageBreak(), Paragraph("7. Take-profit management", s["h1"]),
           img("f_tp.png"), Spacer(1, 0.2 * cm),
           Paragraph(
-              "Le take-profit optimal est recherché sur la période d'ajustement (traits "
-              "pleins) puis vérifié hors échantillon (pointillés). Le résultat le plus "
-              "parlant n'est pas la forme de la courbe, c'est qu'<b>elle change de signe</b> : "
-              "négative sur la première période pour presque toutes les combinaisons (θ, TP), "
-              "positive sur la seconde. Un edge structurel ne s'inverse pas avec le "
-              "calendrier. Le classement des take-profit est également instable : le TP qui "
-              "gagne sur 2024-11→2025-08 n'est pas celui qui gagne ensuite. C'est le "
-              "diagnostic le plus rapide pour distinguer un edge d'un épisode de régime : "
-              "un vrai edge donne une courbe en cloche dont l'optimum <i>ne bouge pas</i>.",
-              s["body"])]
-    rows = [["θ", "TP", "n IS", "E[R] IS", "n OOS", "E[R] OOS",             "Signe"]]
+              "The optimal take-profit is searched on the fitting period (solid lines) then "
+              "checked out of sample (dotted). The most telling result is not the shape of "
+              "the curve but that <b>it changes sign</b>: negative over the first period for "
+              "almost every (θ, TP) combination, positive over the second. A structural edge "
+              "does not invert with the calendar. The ranking of take-profits is also "
+              "unstable: the TP that wins over 2024-11→2025-08 is not the one that wins "
+              "afterwards. This is the fastest diagnostic for telling an edge from a regime "
+              "episode: a real edge gives a bell-shaped curve whose optimum <i>does not "
+              "move</i>.", s["body"])]
+    rows = [["θ", "TP", "n IS", "E[R] IS", "n OOS", "E[R] OOS", "Sign"]]
     for th in (0.6, 0.7, 0.8):
         for kt in (0.75, 1.0, 1.5):
             a, b = [], []
@@ -522,103 +518,103 @@ def build():
                 b.append(sub[sub.date >= cut][f"n_{kt}"].values)
             a, b = np.concatenate(a), np.concatenate(b)
             flip = np.sign(a.mean()) != np.sign(b.mean())
-            rows.append([th, kt, len(a), f"{a.mean():+.4f}", len(b), f"{b.mean():+.4f}",
-                         "INVERSÉ" if flip else "stable"])
+            rows.append([th, kt, f"{len(a):,}", f"{a.mean():+.4f}", f"{len(b):,}", f"{b.mean():+.4f}",
+                         "FLIPPED" if flip else "stable"])
     F += [table(rows, [1.4 * cm, 1.4 * cm, 2.0 * cm, 2.4 * cm, 2.2 * cm, 2.6 * cm, 4.4 * cm], size=7.8)]
 
     # ---- MC + overfitting
-    F += [PageBreak(), Paragraph("8. Monte-Carlo et contrôle du sur-ajustement", s["h1"]),
+    F += [PageBreak(), Paragraph("8. Monte-Carlo and overfitting control", s["h1"]),
           img("f_mc.png"), Spacer(1, 0.2 * cm),
           Paragraph(
-              f"Le bootstrap par blocs de 5 jours (préserve l'autocorrélation) donne un "
-              f"intervalle à 95 % de <b>[{M['boot_ci'][0]:+.1f} ; {M['boot_ci'][1]:+.1f}] R</b> "
-              f"autour d'une moyenne de {M['boot_mean']:+.1f} R : il contient zéro avec une "
-              f"probabilité de {M['p_boot_le_0']:.3f}. Le test de permutation (on inverse le "
-              f"signe des trades au hasard) donne p = <b>{M['perm_p']:.3f}</b> : le résultat "
-              f"observé est parfaitement banal sous l'hypothèse nulle.", s["body"])]
+              f"The 5-day block bootstrap (which preserves autocorrelation) gives a 95% "
+              f"interval of <b>[{M['boot_ci'][0]:+.1f}; {M['boot_ci'][1]:+.1f}] R</b> around "
+              f"a mean of {M['boot_mean']:+.1f} R: it contains zero with probability "
+              f"{M['p_boot_le_0']:.3f}. The permutation test (randomly flipping the sign of "
+              f"trades) gives p = <b>{M['perm_p']:.3f}</b>: the observed result is entirely "
+              f"ordinary under the null hypothesis.", s["body"])]
     sw = pd.DataFrame(RES["sweep"])
     by_th = sw.groupby("theta").mean_R.mean().sort_index()
     mono = bool(np.all(np.diff(by_th.values) > 0) or np.all(np.diff(by_th.values) < 0))
     sym_net = oos.groupby("symbol").net.mean()
     sign_ok = bool(np.all(sym_net > 0) or np.all(sym_net < 0))
-    rows = [["Contrôle", "Valeur", "Seuil d'acceptation", "Statut"],
-            ["Nombre d'essais enregistrés", f"{len(RES['sweep'])}", "—", "registre tenu"],
-            ["Sharpe sous H0 (SR0)", f"{RES['dsr']['sr0']:+.3f}", "—", "—"],
-            ["DSR", f"{RES['dsr']['dsr']:.3f}", "> 0,95", "ÉCHEC"],
-            ["Signe SPY/QQQ/IWM cohérent", "oui" if sign_ok else "non", "identique",
-             "OK" if sign_ok else "ÉCHEC"],
-            ["Monotonie de E[R] dans θ",
+    rows = [["Control", "Value", "Acceptance threshold", "Status"],
+            ["Registered trials", f"{len(RES['sweep'])}", "—", "ledger maintained"],
+            ["Sharpe under H0 (SR0)", f"{RES['dsr']['sr0']:+.3f}", "—", "—"],
+            ["DSR", f"{RES['dsr']['dsr']:.3f}", "> 0.95", "FAIL"],
+            ["Consistent sign SPY/QQQ/IWM", "yes" if sign_ok else "no", "identical",
+             "OK" if sign_ok else "FAIL"],
+            ["Monotonicity of E[R] in θ",
              " / ".join(f"{v:+.4f}" for v in by_th.values), "monotone",
-             "OK" if mono else "ÉCHEC"],
-            ["Espérance brute > 0", f"{O['gross_mean_R']:+.4f} R", "> 0", "OK (mais < coûts)"],
-            ["p(permutation)", f"{M['perm_p']:.3f}", "< 0,05", "ÉCHEC"]]
+             "OK" if mono else "FAIL"],
+            ["Gross expectancy > 0", f"{O['gross_mean_R']:+.4f} R", "> 0", "OK (but < costs)"],
+            ["p(permutation)", f"{M['perm_p']:.3f}", "< 0.05", "FAIL"]]
     F += [table(rows, [5.4 * cm, 2.8 * cm, 4.0 * cm, 3.4 * cm], size=8),
           Spacer(1, 0.25 * cm),
           Paragraph(
-              "Le DSR est calculé avec le nombre réel d'essais du registre "
-              f"({len(RES['sweep'])} configurations testées) et la dispersion des Sharpe "
-              "observés sur ces essais. Avec un Sharpe par trade de "
-              f"{O['sharpe_trade']:+.3f} et {O['n']} trades, il faut un Sharpe par trade "
-              "d'environ 0,07 pour espérer un DSR de 0,95. On en est très loin.", s["body"])]
+              "The DSR is computed with the real number of trials in the ledger "
+              f"({len(RES['sweep'])} configurations tested) and the dispersion of the Sharpe "
+              "ratios observed across them. With a per-trade Sharpe of "
+              f"{O['sharpe_trade']:+.3f} and {O['n']:,} trades, a per-trade Sharpe of about "
+              "0.07 would be needed to hope for a DSR of 0.95. We are far from it.", s["body"])]
 
-    # ---- fréquences
-    F += [PageBreak(), Paragraph("9. Combien de fois le marché fait ce qu'on a calculé", s["h1"]),
+    # ---- frequencies
+    F += [PageBreak(), Paragraph("9. How often the market does what we computed", s["h1"]),
           img("f_freq.png"), Spacer(1, 0.2 * cm)]
     fa = RES["freq_amp"]
-    rows = [["Question", "Observé", "Annoncé par le modèle"],
-            ["Amplitude O→H dans la bande [q25, q75]", f"{fa['ES=F']['band_hit']*100:.1f} %", "50 %"],
-            ["Amplitude O→H au-delà du 90ᵉ centile", f"{fa['ES=F']['above_q90']*100:.1f} %", "10 %"],
-            ["Amplitude O→H au-delà du 95ᵉ centile", f"{fa['ES=F']['above_q95']*100:.1f} %", "5 %"],
-            ["Range total > 1,596 σ", f"{float(np.mean(np.array(A['ES=F']['range_sigma'])>1.596))*100:.1f} %", "≈ 50 %"]]
+    rows = [["Question", "Observed", "Announced by the model"],
+            ["O→H amplitude inside [q25, q75]", f"{fa['ES=F']['band_hit']*100:.1f}%", "50%"],
+            ["O→H amplitude beyond the 90th percentile", f"{fa['ES=F']['above_q90']*100:.1f}%", "10%"],
+            ["O→H amplitude beyond the 95th percentile", f"{fa['ES=F']['above_q95']*100:.1f}%", "5%"],
+            ["Total range > 1.596 σ", f"{float(np.mean(np.array(A['ES=F']['range_sigma'])>1.596))*100:.1f}%", "≈ 50%"]]
     for r in RES["realtime"]["SPY"]["full_by_slot"]:
-        rows.append([f"HOD déjà final à {['10:30','11:30','12:30','13:30','14:30','15:30'][r['slot']]}",
-                     f"{r['obs']*100:.1f} %", f"{r['pred']*100:.1f} %"])
+        rows.append([f"HOD already final at {['10:30','11:30','12:30','13:30','14:30','15:30'][r['slot']]}",
+                     f"{r['obs']*100:.1f}%", f"{r['pred']*100:.1f}%"])
     fs = RES.get("freq_signal", {})
     if fs:
-        rows += [["TP touché sur les trades OOS", f"{fs['tp_rate']*100:.1f} %", "—"],
-                 ["Stop touché", f"{fs['sl_rate']*100:.1f} %", "—"],
-                 ["Sortie au temps", f"{fs['time_rate']*100:.1f} %", "—"]]
+        rows += [["TP reached on OOS trades", f"{fs['tp_rate']*100:.1f}%", "—"],
+                 ["Stop reached", f"{fs['sl_rate']*100:.1f}%", "—"],
+                 ["Time exit", f"{fs['time_rate']*100:.1f}%", "—"]]
     F += [table(rows, [8.4 * cm, 3.0 * cm, 4.6 * cm], size=8),
           Spacer(1, 0.25 * cm),
           Paragraph(
-              "Lecture : la colonne du milieu est la réponse à « combien de fois, sur toutes "
-              "les séances où le marché est ouvert ». Sur l'amplitude, le modèle est "
-              "<b>légèrement trop étroit</b> (moins de journées en zone calme que prévu, "
-              "plus de journées au-delà du 90ᵉ centile). Sur le timing du high, il est "
-              "remarquablement proche. Sur le trading, la fréquence de take-profit est "
-              "inférieure à ce qu'exige le payoff.", s["body"])]
+              "Reading: the middle column is the answer to \"how often, across every session "
+              "the market is open\". On amplitude, the model is <b>slightly too narrow</b> "
+              "(fewer days in the calm zone than expected, more days beyond the 90th "
+              "percentile). On the timing of the high it is remarkably close. On trading, "
+              "the take-profit frequency is below what the payoff requires.", s["body"])]
 
     # ---- conclusion
-    F += [PageBreak(), Paragraph("10. Conclusion honnête", s["h1"]),
-          Paragraph("Ce qui est démontré", s["h2"]),
-          Paragraph("• La formule de survie de maximum prédit correctement la probabilité "
-                    "que le high courant soit le final (BSS +0,33 à +0,39 contre une "
-                    "climatologie horaire).", s["bullet"]),
-          Paragraph("• L'amplitude RTH est prévisible et systématiquement sous-estimée par "
-                    "la diffusion : facteur κ ≈ 1,09, stable sur 1 383 séances ES et NQ.", s["bullet"]),
-          Paragraph("• Le temps de volatilité améliore le timing d'un facteur 2,6 mais ne "
-                    "suffit pas : l'ouverture concentre plus d'extrêmes que toute loi de "
-                    "référence déterministe.", s["bullet"]),
-          Paragraph("Ce qui n'est pas démontré", s["h2"]),
-          Paragraph(f"• Qu'on puisse en tirer un P&L. Sur {O['n']} trades hors échantillon, "
-                    f"l'espérance <i>brute</i> est positive ({O['gross_mean_R']:+.4f} R) mais "
-                    f"les coûts la dépassent de {O['cost_R']/max(O['gross_mean_R'],1e-9):.1f}× : "
-                    f"l'espérance nette est de {O['mean_R']:+.4f} R et le DSR de "
-                    f"{RES['dsr']['dsr']:.3f}. L'edge est réel mais sous le seuil de friction.", s["bullet"]),
-          Paragraph("• Que la granularité horaire soit suffisante. Un déclencheur à la "
-                    "minute aurait un timing d'entrée très différent ; c'est la limite "
-                    "principale de ce test, imposée par la source gratuite.", s["bullet"]),
-          Paragraph("Ce qui ferait changer d'avis", s["h2"]),
-          Paragraph("Un BSS supérieur à +0,05 <b>contre la formule de diffusion elle-même</b> "
-                    "(et non contre une climatologie), un signe identique sur ES et NQ, une "
-                    "monotonie de l'espérance dans le seuil θ, et un DSR supérieur à 0,95 "
-                    "avec registre des essais. Quatre conditions, aucune remplie ici.", s["body"]),
+    F += [PageBreak(), Paragraph("10. Honest conclusion", s["h1"]),
+          Paragraph("What is demonstrated", s["h2"]),
+          Paragraph("• The maximum-survival formula correctly predicts the probability that "
+                    "the running high is the final one (BSS +0.33 to +0.39 against an hourly "
+                    "climatology).", s["bullet"]),
+          Paragraph("• The RTH amplitude is predictable and systematically understated by "
+                    "diffusion: factor κ ≈ 1.09, stable over 1,383 ES and NQ sessions.", s["bullet"]),
+          Paragraph("• Volatility time improves timing by a factor of 2.6 but is not "
+                    "enough: the open concentrates more extremes than any deterministic "
+                    "reference law.", s["bullet"]),
+          Paragraph("What is not demonstrated", s["h2"]),
+          Paragraph(f"• That a P&L can be extracted. Over {O['n']:,} out-of-sample trades "
+                    f"the <i>gross</i> expectancy is positive ({O['gross_mean_R']:+.4f} R) but "
+                    f"costs exceed it by {O['cost_R']/max(O['gross_mean_R'],1e-9):.1f}×: net "
+                    f"expectancy is {O['mean_R']:+.4f} R and the DSR is "
+                    f"{RES['dsr']['dsr']:.3f}. The edge is real but below the friction "
+                    f"threshold.", s["bullet"]),
+          Paragraph("• That hourly granularity is sufficient. A minute-level trigger would "
+                    "have a very different entry timing; this is the main limit of the test, "
+                    "imposed by the free source.", s["bullet"]),
+          Paragraph("What would change our mind", s["h2"]),
+          Paragraph("A BSS above +0.05 <b>against the diffusion formula itself</b> (not "
+                    "against a climatology), the same sign on ES and NQ, monotonic "
+                    "expectancy in the threshold θ, and a DSR above 0.95 with a trial "
+                    "ledger. Four conditions, none met here.", s["body"]),
           Spacer(1, 0.4 * cm),
-          Paragraph("Reproductibilité", s["h2"]),
-          Paragraph("<i>python -m research.data</i> (validation de la reconstruction) → "
-                    "<i>python -m research.engine</i> (étude + backtest + Monte-Carlo) → "
-                    "<i>python -m research.report</i> (ce PDF). Les données brutes sont "
-                    "mises en cache dans <i>research/cache/</i>.", s["small"])]
+          Paragraph("Reproducibility", s["h2"]),
+          Paragraph("<i>python -m research.data</i> (reconstruction validation) → "
+                    "<i>python -m research.engine</i> (study + backtest + Monte-Carlo) → "
+                    "<i>python -m research.report</i> (this PDF). Raw data are cached in "
+                    "<i>research/cache/</i>.", s["small"])]
 
     doc.build(F)
     print("PDF ->", OUT / "HOD_LOD_ES_NQ.pdf")

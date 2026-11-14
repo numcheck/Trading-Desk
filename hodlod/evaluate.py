@@ -1,13 +1,13 @@
 """
-Validation : walk-forward purge, metriques propres, couts, sur-ajustement.
+Validation: purged walk-forward, proper metrics, costs, overfitting.
 
-Regles dures appliquees ici :
-  - aucun look-ahead : le label du jour J (HOD final) n'est disponible qu'a la
-    cloture de J, donc tout modele qui predit un evenement de J s'entraine sur <= J-1.
-  - purge : on retire du train les jours dont le label chevauche la fenetre de test
-    (utile quand la cible est une moyenne glissante ou un horizon a h jours).
-  - embargo : on retire quelques jours avant le test pour casser l'autocorrelation
-    residuelle (Lopez de Prado 2018, ch. 7).
+Hard rules enforced here:
+  - no look-ahead: the label of day J (final HOD) is only available at the close
+    of J, so any model predicting an event of J trains on <= J-1.
+  - purge: remove from training the days whose label overlaps the test window
+    (useful when the target is a rolling average or an h-day horizon).
+  - embargo: remove a few days before the test to break residual
+    autocorrelation (Lopez de Prado 2018, ch. 7).
 """
 from __future__ import annotations
 
@@ -16,14 +16,14 @@ from scipy.stats import norm
 
 
 # ----------------------------------------------------------------------------
-# Decoupage temporel
+# Temporal splitting
 # ----------------------------------------------------------------------------
 def purged_walk_forward(n: int, train: int, test: int, embargo: int = 0,
                         label_horizon: int = 0):
-    """Genere (idx_train, idx_test) en avançant dans le temps, sans recouvrement.
+    """Yields (idx_train, idx_test) moving forward in time, without overlap.
 
-    label_horizon : nombre de jours sur lesquels le label du train "voit" le futur.
-    Les echantillons de train dont le label deborde sur le test sont retires.
+    label_horizon: number of days over which the training label "sees" the future.
+    Training samples whose label spills into the test are removed.
     """
     start = train
     while start + test <= n:
@@ -44,7 +44,7 @@ def split_by_day(n_days: int, frac_train=0.6, frac_val=0.2):
 
 
 # ----------------------------------------------------------------------------
-# Metriques probabilistes
+# Probabilistic metrics
 # ----------------------------------------------------------------------------
 def brier(y, p):
     y = np.asarray(y, float)
@@ -53,11 +53,11 @@ def brier(y, p):
 
 
 def brier_skill(y, p, p_ref):
-    """BSS = 1 - BS/BS_ref. > 0 : on fait mieux que la reference.
+    """BSS = 1 - BS/BS_ref. > 0 means we beat the reference.
 
-    La reference doit etre le modele analytique (diffusion), pas la climatologie.
-    Comparer a la climatologie est trompeur : la base rate de "le HOD courant est
-    final" monte vers 1 en fin de seance, donc la climatologie est deja bonne.
+    The reference must be the analytic (diffusion) model, not climatology.
+    Comparing with climatology is misleading: the base rate of "the running HOD
+    is final" rises towards 1 late in the session, so climatology is already good.
     """
     b0 = brier(y, p_ref)
     return float(1.0 - brier(y, p) / b0) if b0 > 0 else np.nan
@@ -70,7 +70,7 @@ def logloss(y, p, eps: float = 1e-12):
 
 
 def reliability_table(y, p, n_bins: int = 10):
-    """Table de fiabilite : probabilite predite moyenne vs frequence observee."""
+    """Reliability table: mean predicted probability vs observed frequency."""
     y = np.asarray(y, float)
     p = np.asarray(p, float)
     edges = np.linspace(0, 1, n_bins + 1)
@@ -91,8 +91,8 @@ def expected_calibration_error(y, p, n_bins: int = 10):
 
 
 def auc(y, p):
-    """AUC de rang. A NE PAS optimiser : elle est dominee par les observations de
-    fin de seance ou le HOD est deja final. On la rapporte pour le contexte."""
+    """Rank AUC. DO NOT optimise it: it is dominated by late-session observations
+    where the HOD is already final. Reported for context only."""
     from sklearn.metrics import roc_auc_score
     y = np.asarray(y, int)
     if y.min() == y.max():
@@ -101,7 +101,7 @@ def auc(y, p):
 
 
 # ----------------------------------------------------------------------------
-# Metriques de quantile / distribution
+# Quantile / distribution metrics
 # ----------------------------------------------------------------------------
 def pinball(y, q_hat, q):
     y = np.asarray(y, float)
@@ -110,9 +110,9 @@ def pinball(y, q_hat, q):
 
 
 def crps_from_quantiles(y, Q, taus):
-    """CRPS = 2 * integrale_0^1 QL_tau dtau (identite de la perte pinball).
+    """CRPS = 2 * integral_0^1 QL_tau dtau (pinball loss identity).
 
-    Q : shape (n, len(taus)). Estimation par moyenne sur une grille de taus.
+    Q: shape (n, len(taus)). Estimated by averaging over a grid of taus.
     """
     taus = np.asarray(taus, float)
     Q = np.asarray(Q, float)
@@ -125,7 +125,7 @@ def interval_coverage(y, lo, hi):
 
 
 def quantile_score_table(y, Q, taus, Q_ref=None):
-    """Pinball par quantile, et gain vs une reference (CARR ou demi-normal)."""
+    """Pinball per quantile, and gain vs a reference (CARR or half-normal)."""
     out = {}
     for i, t in enumerate(np.asarray(taus, float)):
         row = {"pinball": pinball(y, Q[:, i], t)}
@@ -137,10 +137,10 @@ def quantile_score_table(y, Q, taus, Q_ref=None):
 
 
 # ----------------------------------------------------------------------------
-# Economie et significativite
+# Economics and significance
 # ----------------------------------------------------------------------------
 def block_bootstrap_ci(x, block: int = 5, n_boot: int = 5000, seed: int = 0):
-    """IC bootstrap par blocs : preserve l'autocorrelation intra-jour et inter-jours."""
+    """Block-bootstrap CI: preserves intraday and interday autocorrelation."""
     x = np.asarray(x, float)
     x = x[np.isfinite(x)]
     n = len(x)
@@ -159,16 +159,16 @@ def block_bootstrap_ci(x, block: int = 5, n_boot: int = 5000, seed: int = 0):
 
 
 def probabilistic_sharpe(sr, T, skew=0.0, kurt=3.0, sr_star=0.0):
-    """PSR (Bailey & Lopez de Prado 2014) : P(SR vrai > sr_star)."""
+    """PSR (Bailey & Lopez de Prado 2014): P(true SR > sr_star)."""
     denom = np.sqrt(max(1.0 - skew * sr + (kurt - 1.0) / 4.0 * sr ** 2, 1e-12))
     return float(norm.cdf((sr - sr_star) * np.sqrt(max(T - 1, 1)) / denom))
 
 
 def deflated_sharpe(sr, T, n_trials, sr_std, skew=0.0, kurt=3.0):
-    """DSR : PSR evalue contre le Sharpe maximal attendu sous H0 apres N essais.
+    """DSR: PSR evaluated against the maximum Sharpe expected under H0 after N trials.
 
-    sr_std : ecart-type des Sharpe observes sur les N essais (dispersion des trials).
-    gamma = constante d'Euler-Mascheroni.
+    sr_std: standard deviation of the Sharpe ratios observed across the N trials
+    (dispersion of the trials). gamma = Euler-Mascheroni constant.
     """
     gamma = 0.5772156649
     N = max(int(n_trials), 2)
@@ -178,7 +178,7 @@ def deflated_sharpe(sr, T, n_trials, sr_std, skew=0.0, kurt=3.0):
 
 
 def net_pnl(points, contracts, tick_value, tick_size, cost_ticks_rt=1.5):
-    """P&L net en dollars, couts inclus (commission + slippage en ticks aller-retour)."""
+    """Net P&L in dollars, costs included (commission + slippage in round-trip ticks)."""
     gross = np.asarray(points, float) * contracts * (tick_value / tick_size)
     cost = cost_ticks_rt * tick_value * contracts
     return gross - cost, cost
@@ -192,19 +192,19 @@ def r_multiple(entry, exit, stop, direction):
 
 
 # ----------------------------------------------------------------------------
-# Garde-fous anti-sur-ajustement
+# Overfitting guard rails
 # ----------------------------------------------------------------------------
 def trial_ledger():
-    """A tenir OBLIGATOIREMENT : une ligne par configuration testee.
+    """MUST be maintained: one row per tested configuration.
 
-    Sans ce registre, le DSR et le PBO sont incalculables et toute performance
-    annoncee est indefendable. C'est le point le plus souvent omis.
+    Without this registry the DSR and the PBO cannot be computed and any reported
+    performance is indefensible. This is the most frequently omitted step.
     """
     return {"n_trials": 0, "sharpe_by_trial": [], "notes": []}
 
 
 def leakage_audit(feature_names, forbidden=("hod", "lod", "final", "target", "future",
                                             "close_today", "high_today", "low_today")):
-    """Detecte les noms de features qui sentent la fuite d'information."""
+    """Flags feature names that smell of information leakage."""
     bad = [f for f in feature_names if any(k in f.lower() for k in forbidden)]
     return {"suspect_features": bad, "ok": len(bad) == 0}

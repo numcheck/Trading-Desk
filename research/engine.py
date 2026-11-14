@@ -1,16 +1,16 @@
 """
-Moteur d'etude et de backtest sur donnees reelles gratuites.
+Study and backtest engine on real free data.
 
-Aucune fuite d'information :
-  * sigma_hat(J) = HAR en fenetre EXPANSIVE, reestime tous les 20 jours, qui
-    n'utilise que les variances <= J-1.
-  * le profil saisonnier est estime sur le passe glissant.
-  * le backtest entre a l'OUVERTURE de la barre suivant le signal.
-  * (theta, take-profit) sont choisis sur le passe uniquement, par walk-forward
-    mensuel. La periode evaluee ne sert jamais a selectionner.
+No look-ahead:
+  * sigma_hat(J) = HAR on an EXPANDING window, re-estimated every 20 days, using
+    only variances <= J-1.
+  * the seasonal profile is estimated on rolling history.
+  * the backtest enters at the OPEN of the bar following the signal.
+  * (theta, take-profit) are chosen on past data only, by monthly walk-forward.
+    The evaluated period never selects.
 
-Optimisation : on simule UNE fois tous les candidats d'entree (date, slot, sens)
-pour chaque take-profit, puis filtrer par seuil est une simple masque.
+Speed: every entry candidate (date, slot, side) is simulated ONCE for each
+take-profit; filtering by threshold is then a simple mask.
 """
 from __future__ import annotations
 
@@ -28,17 +28,17 @@ warnings.filterwarnings("ignore")
 OUT = Path("research/out")
 OUT.mkdir(parents=True, exist_ok=True)
 
-COST_SIGMA = 0.016          # cout aller-retour ES en fraction de sigma_day
+COST_SIGMA = 0.016          # ES round-trip cost as a fraction of sigma_day
 N_SLOTS = 7
 
 
-# ---------------------------------------------------------------- volatilite
+# ---------------------------------------------------------------- volatility
 def parkinson_var(d: pd.DataFrame) -> np.ndarray:
     return np.log(d.high.values / d.low.values) ** 2 / (4 * np.log(2))
 
 
 def har_walkforward(var: np.ndarray, min_train: int = 120, step: int = 20) -> np.ndarray:
-    """sigma_hat[t] strictement causal (HAR sur log variance)."""
+    """sigma_hat[t] strictly causal (HAR on log variance)."""
     x = np.log(np.maximum(var, 1e-12))
     s = pd.Series(x)
     X = np.column_stack([s.shift(1), s.shift(1).rolling(5).mean(),
@@ -75,7 +75,7 @@ def _arc(x):
 # ---------------------------------------------------------------- A. amplitude
 def study_amplitude(sym: str, years: int = 6) -> dict:
     d = daily(sym, years)
-    # har_walkforward rend un sigma en LOG-prix : on le remet en points
+    # har_walkforward returns a sigma in LOG-price: convert it back to points
     sig = har_walkforward(parkinson_var(d)) * d.close.values
     m = np.isfinite(sig) & (sig > 0)
     d, sig = d[m], sig[m]
@@ -123,8 +123,8 @@ def study_timing(sym: str, days: int = 730) -> dict:
     chi_c = float(np.sum((cnt - n * p_clock) ** 2 / np.maximum(n * p_clock, 1e-9)))
     chi_v = float(np.sum((cnt - n * p_vol) ** 2 / np.maximum(n * p_vol, 1e-9)))
     idx = sess.i_high.values
-    # PIT randomise : sur une variable DISCRETE a 7 modalites, le KS brut est
-    # invalide (CDF en escalier). On ajoute un jitter uniforme dans le slot.
+    # Randomised PIT: on a DISCRETE variable with 7 modalities the raw KS is
+    # invalid (step CDF). We add a uniform jitter inside the slot.
     rng = np.random.default_rng(0)
     e_clock = _arc(edges)
     e_vol = _arc(np.r_[0.0, F])
@@ -152,12 +152,12 @@ def study_timing(sym: str, days: int = 730) -> dict:
     }
 
 
-# ---------------------------------------------------------------- D. temps reel
+# ---------------------------------------------------------------- D. real time
 def realtime_rows(sym: str, days: int = 730) -> pd.DataFrame:
     bars, sess = sessions_1h(sym, days)
     prof = profile_slots(bars)
     F = np.cumsum(prof)
-    sig = har_walkforward(parkinson_var(sess)) * sess.close.values   # en points
+    sig = har_walkforward(parkinson_var(sess)) * sess.close.values   # in points
     pos = {d: i for i, d in enumerate(sess.index)}
     rows = []
     for day, g in bars.groupby("date"):
@@ -216,7 +216,7 @@ def brier_table(rt: pd.DataFrame, train_frac: float = 0.6) -> dict:
 # ---------------------------------------------------------------- backtest
 def simulate(rt: pd.DataFrame, bars: pd.DataFrame, k_tps, max_risk_sigma: float = 0.7,
              buffer_sigma: float = 0.08) -> pd.DataFrame:
-    """Simule tous les candidats d'entree, pour chaque take-profit."""
+    """Simulates every entry candidate, for each take-profit."""
     by_day = {d: g.sort_values("slot") for d, g in bars.groupby("date")}
     recs = []
     for row in rt.itertuples():
@@ -245,7 +245,7 @@ def simulate(rt: pd.DataFrame, bars: pd.DataFrame, k_tps, max_risk_sigma: float 
                 for j in range(row.slot + 1, n):
                     hit_stop = hi[j] >= stop if side == "short" else lo[j] <= stop
                     hit_tp = lo[j] <= tp if side == "short" else hi[j] >= tp
-                    if hit_stop:                       # stop prioritaire (conservateur)
+                    if hit_stop:                       # stop takes priority (conservative)
                         px, reason = stop, "stop"
                         break
                     if hit_tp:
@@ -353,23 +353,23 @@ def main():
     res = {"meta": {"cost_sigma": COST_SIGMA, "generated": pd.Timestamp.now().isoformat(),
                     "thetas": THETAS, "k_tps": K_TPS}}
 
-    print("== A. amplitude (quotidien 6 ans) ==")
+    print("== A. amplitude (6 years daily) ==")
     res["amplitude"] = {}
     for sym in ("ES=F", "NQ=F"):
         a = study_amplitude(sym, 6)
         res["amplitude"][sym] = a
         res.setdefault("freq_amp", {})[sym] = frequency_amplitude(a)
         print(f"  {sym:5s} n={a['n_days']:4d} {a['start']}->{a['end']} | "
-              f"E[R+]={a['mean_Rup']:.3f} (theo 0.798) | E[range/σ]={a['mean_range']:.3f} "
+              f"E[R+]={a['mean_Rup']:.3f} (theo 0.798) | E[range/sigma]={a['mean_range']:.3f} "
               f"(theo 1.596) | mult={[round(v,2) for v in a['mult']]} | KS={a['ks_Rup']:.3f}")
 
-    print("== C/D. timing + temps reel (1h, 730 j) ==")
+    print("== C/D. timing + real time (1h, 730 d) ==")
     res["timing"], res["realtime"] = {}, {}
     cands = {}
     for sym in ("SPY", "QQQ", "IWM"):
         t = study_timing(sym)
         res["timing"][sym] = t
-        print(f"  {sym}: {t['n_sessions']} seances | chi2 horloge={t['chi2_clock']:.1f} "
+        print(f"  {sym}: {t['n_sessions']} sessions | chi2 clock={t['chi2_clock']:.1f} "
               f"(p={t['p_clock_test']:.3f}) | chi2 vol={t['chi2_vol']:.1f} "
               f"(p={t['p_vol_test']:.3f}) | KS PIT clock={t['ks_pit_clock']:.3f} "
               f"vol={t['ks_pit_vol']:.3f}")
@@ -377,13 +377,13 @@ def main():
         rt.to_pickle(OUT / f"rt_{sym}.pkl")
         b = brier_table(rt)
         res["realtime"][sym] = b
-        print(f"     Brier_hi modele={b['hi']['brier_model']:.4f} clim={b['hi']['brier_clim']:.4f} "
+        print(f"     Brier_hi model={b['hi']['brier_model']:.4f} clim={b['hi']['brier_clim']:.4f} "
               f"BSS={b['hi']['bss']:+.4f}")
         bars, _ = sessions_1h(sym)
         cands[sym] = simulate(rt, bars, K_TPS)
         cands[sym].to_pickle(OUT / f"cand_{sym}.pkl")
 
-    print("== sweep in-sample + walk-forward ==")
+    print("== in-sample sweep + walk-forward ==")
     res["sweep"], all_oos, picks = [], [], []
     for sym in ("SPY", "QQQ", "IWM"):
         rt = pd.read_pickle(OUT / f"rt_{sym}.pkl")
@@ -420,7 +420,7 @@ def main():
         print(f"  OOS n={m['n']} hit={m['hit']:.3f} mean_R={m['mean_R']:+.4f} "
               f"total_R={m['total_R']:+.1f} DD={m['max_dd_R']:.1f} "
               f"PF={m['profit_factor']:.2f}")
-        print(f"  MC IC95={[round(x,1) for x in res['mc']['boot_ci']]} "
+        print(f"  MC CI95={[round(x,1) for x in res['mc']['boot_ci']]} "
               f"p(<=0)={res['mc']['p_boot_le_0']:.3f} perm_p={res['mc']['perm_p']:.3f}")
         print(f"  DSR={res['dsr']['dsr']:.3f} (sr0={res['dsr']['sr0']:.3f})")
     (OUT / "results.json").write_text(json.dumps(res, default=float))

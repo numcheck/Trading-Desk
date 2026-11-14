@@ -1,19 +1,19 @@
 """
-C. Timing : a quelle heure se forment H et L.
+C. Timing: at what time H and L form.
 
-Resultat de reference : pour un MB sans derive, l'instant du maximum sur [0,1]
-suit la loi de l'arcsinus (troisieme loi de l'arcsinus, Levy 1939/1948) :
+Reference result: for a driftless Brownian motion, the time of the maximum on
+[0,1] follows the arcsine law (third arcsine law, Levy 1939/1948):
 
-    P(T_H <= t) = (2/pi) * arcsin(sqrt(t)),   densite 1/(pi sqrt(t(1-t)))
+    P(T_H <= t) = (2/pi) * arcsin(sqrt(t)),   density 1/(pi sqrt(t(1-t)))
 
-Donc : U-shape, massif aux deux bouts, et ce n'est PAS une propriete empirique de
-la vol intraday, c'est une propriete de tout marche aleatoire continu. Le profil
-saisonnier de volatilite rajoute une seconde couche : ce n'est plus t mais F(t),
-la fraction de variance ecoulee, qui est l'horloge pertinente.
+So it is U-shaped, with mass at both ends, and it is NOT an empirical property of
+intraday volatility: it is a property of any continuous random walk. The seasonal
+volatility profile adds a second layer: the relevant clock is no longer t but
+F(t), the fraction of variance elapsed.
 
-Ce module fournit : la loi de reference, la transformation en temps de volatilite,
-les diagnostics (PIT, KS, log-score) et un modele de hasard en temps discret qui
-sert de pont entre le timing et le temps reel.
+This module provides: the reference law, the transform to volatility time, the
+diagnostics (PIT, KS, log-score) and a discrete-time hazard model that bridges
+timing and real-time.
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from scipy.stats import kstest, norm
 
 
 # ----------------------------------------------------------------------------
-# C1. Loi de l'arcsinus
+# C1. The arcsine law
 # ----------------------------------------------------------------------------
 def arcsine_cdf(t):
     t = np.clip(np.asarray(t, float), 0.0, 1.0)
@@ -40,16 +40,16 @@ def arcsine_ppf(u):
 
 
 def arcsine_expected_mass(bins) -> np.ndarray:
-    """Masse de probabilite de la loi de reference sur des intervalles donnes."""
+    """Probability mass of the reference law on given intervals."""
     bins = np.asarray(bins, float)
     return np.diff(arcsine_cdf(bins))
 
 
 # ----------------------------------------------------------------------------
-# C2. Temps de volatilite
+# C2. Volatility time
 # ----------------------------------------------------------------------------
 def clock_to_vol_time(t, F_grid):
-    """t en fraction de seance -> F(t) en fraction de variance."""
+    """t as a fraction of the session -> F(t) as a fraction of variance."""
     grid = np.linspace(0.0, 1.0, len(F_grid))
     return np.interp(np.asarray(t, float), grid, np.asarray(F_grid, float))
 
@@ -60,7 +60,7 @@ def vol_time_to_clock(F, F_grid):
 
 
 def arcsine_cdf_voltime(t, F_grid):
-    """Loi de reference quand la vol est saisonniere : arcsine en temps de vol."""
+    """Reference law when volatility is seasonal: arcsine in volatility time."""
     return arcsine_cdf(clock_to_vol_time(t, F_grid))
 
 
@@ -68,15 +68,15 @@ def arcsine_cdf_voltime(t, F_grid):
 # C3. Diagnostics
 # ----------------------------------------------------------------------------
 def pit_from_argmax(argmax_frac, F_grid):
-    """PIT en DEUX etapes : u = ArcsinCDF( F(t_max) ), puis test d'uniformite.
+    """Two-step PIT: u = ArcsinCDF( F(t_max) ), then a uniformity test.
 
-    Pourquoi deux etapes : sous H0, F(t_max) suit une loi ARCSINUS (pas uniforme),
-    c'est justement le resultat de Levy. On applique donc ArcsinCDF par-dessus.
-    Oublier cette seconde etape est l'erreur la plus frequente dans ce diagnostic.
+    Why two steps: under H0, F(t_max) follows an ARCSINE law (not a uniform one) —
+    that is precisely Levy's result. So ArcsinCDF is applied on top. Forgetting
+    this second step is the most common mistake in this diagnostic.
 
-    Sous H0 (MB + profil de vol connu), u ~ U(0,1).
-    PIT en U renverse  => extremes plus souvent au milieu que prevu.
-    PIT en cloche     => extremes plus precoces/tardifs que l'arcsinus.
+    Under H0 (BM + known vol profile), u ~ U(0,1).
+    Inverted-U PIT => extremes more often in the middle than expected.
+    Bell-shaped PIT => extremes earlier/later than the arcsine law.
     """
     return arcsine_cdf(clock_to_vol_time(np.asarray(argmax_frac, float), F_grid))
 
@@ -91,15 +91,15 @@ def pit_report(argmax_frac, F_grid, alpha: float = 0.05) -> dict:
         "ks_pvalue": float(ks.pvalue),
         "mean_pit": float(np.mean(u)),
         "reject_uniform": bool(ks.pvalue < alpha),
-        "note": "PIT en cloche => extremes plus precoces/tardifs que l'arcsinus",
+        "note": "bell-shaped PIT => extremes earlier/later than the arcsine law",
     }
 
 
 def pit_report_clock(argmax_frac, alpha: float = 0.05) -> dict:
-    """Meme diagnostic SANS le temps de volatilite (horloge brute).
+    """Same diagnostic WITHOUT volatility time (raw clock).
 
-    Sert de controle negatif : si cette version n'est pas rejetee alors que la
-    version en temps de vol l'est, c'est que le profil de vol est mal estime.
+    Serves as a negative control: if this version is not rejected while the
+    volatility-time version is, the volatility profile is badly estimated.
     """
     u = arcsine_cdf(np.asarray(argmax_frac, float))
     u = u[np.isfinite(u)]
@@ -109,7 +109,7 @@ def pit_report_clock(argmax_frac, alpha: float = 0.05) -> dict:
 
 
 def discrete_logscore(counts: np.ndarray, p: np.ndarray) -> float:
-    """Log-score d'une distribution discrete (plus petit = mieux)."""
+    """Log-score of a discrete distribution (smaller is better)."""
     counts = np.asarray(counts, float)
     p = np.clip(np.asarray(p, float), 1e-12, 1.0)
     p = p / p.sum()
@@ -121,20 +121,20 @@ def brier_multiclass(onehot: np.ndarray, p: np.ndarray) -> float:
 
 
 # ----------------------------------------------------------------------------
-# C4. Hasard en temps discret (pont vers le temps reel)
+# C4. Discrete-time hazard (bridge to real time)
 # ----------------------------------------------------------------------------
 def empirical_hazard(argmax_frac, n_bins: int = 48, F_grid=None):
-    """Hasard empirique h_k = P(premier depassement dans le bin k | pas encore depasse).
+    """Empirical hazard h_k = P(first crossing in bin k | not crossed yet).
 
-    Renvoie (bins, h, S) ou S est la survie impliquee : S_k = prod_{j<=k}(1-h_j).
-    C'est la version non parametrique de p_final(t) ; elle sert de controle
-    au modele de diffusion et de cible pour un classifieur.
+    Returns (bins, h, S) where S is the implied survival: S_k = prod_{j<=k}(1-h_j).
+    This is the non-parametric version of p_final(t); it serves as a control for
+    the diffusion model and as a target for a classifier.
     """
     a = np.asarray(argmax_frac, float)
     a = a[np.isfinite(a)]
     edges = np.linspace(0, 1, n_bins + 1)
     if F_grid is not None:
-        # on binne en temps de volatilite, plus interpretable
+        # bin in volatility time, which is more interpretable
         a = clock_to_vol_time(a, F_grid)
     idx = np.clip(np.digitize(a, edges) - 1, 0, n_bins - 1)
     cnt = np.bincount(idx, minlength=n_bins).astype(float)
@@ -145,11 +145,11 @@ def empirical_hazard(argmax_frac, n_bins: int = 48, F_grid=None):
 
 
 def competing_risk_table(argmax_high, argmin_low, n_bins: int = 24):
-    """Table de risques concurrents : H et L se disputent la seance.
+    """Competing-risks table: H and L compete for the session.
 
-    Renvoie, par bin, la frequence de "HOD fixe dans ce bin", "LOD fixe dans ce bin",
-    et la probabilite que les DEUX soient deja fixes (etat absorbant du range).
-    Utile pour une strategie de fade de range plutot que de retournement d'extreme.
+    Returns, per bin, the frequency of "HOD set in this bin", "LOD set in this bin",
+    and the probability that BOTH are already set (the absorbing range state).
+    Useful for a range-fade strategy rather than an extreme-reversal one.
     """
     hi = np.clip((np.asarray(argmax_high) * n_bins).astype(int), 0, n_bins - 1)
     lo = np.clip((np.asarray(argmin_low) * n_bins).astype(int), 0, n_bins - 1)
@@ -163,7 +163,7 @@ def competing_risk_table(argmax_high, argmin_low, n_bins: int = 24):
 
 
 def session_argmax_min(bars) -> tuple[float, float]:
-    """Instant (fraction de seance) du high et du low, depuis des barres 1 min."""
+    """Time (fraction of the session) of the high and of the low, from 1-minute bars."""
     h = np.asarray(bars.high.values, float)
     l = np.asarray(bars.low.values, float)
     n = len(h)

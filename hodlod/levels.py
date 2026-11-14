@@ -1,15 +1,15 @@
 """
-B5. Niveaux de confluence : PDH/PDL, high/low overnight, VWAP, initial balance,
-volume profile, chiffres ronds.
+B5. Confluence levels: PDH/PDL, overnight high/low, VWAP, initial balance,
+volume profile, round numbers.
 
-Le piege central : "le PDH est touche 70% du temps" ne veut rien dire. Un niveau
-proche du prix est touche plus souvent, mecaniquement. Il faut donc :
-  1) conditionner sur la distance en sigma,
-  2) comparer a un niveau PLACEBO a la meme distance,
-  3) definir "rejet" et "cassure" de facon symetrique et sans look-ahead.
+The central trap: "the PDH is touched 70% of the time" means nothing. A level
+close to the price is touched more often, mechanically. So we must:
+  1) condition on the distance in sigma,
+  2) compare with a PLACEBO level at the same distance,
+  3) define "rejection" and "break" symmetrically and without look-ahead.
 
-Ce module fournit les trois. Les frequences elles-memes doivent etre estimees sur
-VOS donnees : je ne les invente pas ici.
+This module provides all three. The frequencies themselves must be estimated on
+YOUR data: they are not invented here.
 """
 from __future__ import annotations
 
@@ -17,10 +17,10 @@ import numpy as np
 
 
 def reference_levels(prev: dict, overnight: dict, session: dict | None = None) -> dict:
-    """Niveaux connus AVANT l'ouverture RTH.
+    """Levels known BEFORE the RTH open.
 
-    prev      : {'high','low','close','vwap'} de la seance RTH precedente
-    overnight : {'high','low','close','vwap'} de la session ETH (16:00->09:30)
+    prev     : {'high','low','close','vwap'} of the previous RTH session
+    overnight: {'high','low','close','vwap'} of the ETH session (16:00->09:30)
     """
     lv = {
         "pdh": prev.get("high"), "pdl": prev.get("low"), "pdc": prev.get("close"),
@@ -34,20 +34,19 @@ def reference_levels(prev: dict, overnight: dict, session: dict | None = None) -
 
 
 def initial_balance(bars, minutes: int = 30) -> dict:
-    """Initial balance : high/low des `minutes` premieres minutes. Connu a 10:00."""
+    """Initial balance: high/low of the first `minutes` minutes. Known at 10:00."""
     ib = bars.iloc[:minutes]
     return {"ibh": float(ib.high.max()), "ibl": float(ib.low.min())}
 
 
 def touch_break(highs, lows, closes, level: float, tol: float,
                 side: str = "up") -> dict:
-    """Evenement "touche puis rejette" vs "touche puis casse", sans look-ahead.
+    """Event "touched then rejected" vs "touched then broken", without look-ahead.
 
-    side='up'   : on teste un niveau au-dessus (PDH, ONH, IBH).
-    Un TOUCH est une meche dans [level-tol, level+tol].
-    Une CASSURE est une cloture au-dela de level+tol (ou level-tol si side='down')
-    dans les `horizon` barres suivant le premier touch.
-    Un REJET est un touch sans cassure et un retour au-dela de tol du cote d'origine.
+    side='up'  : we test a level above the price (PDH, ONH, IBH).
+    A TOUCH is a wick inside [level-tol, level+tol].
+    A BREAK is a close beyond level+tol (or level-tol if side='down').
+    A REJECTION is a touch with no break and a return beyond tol to the origin side.
     """
     h = np.asarray(highs, float)
     l = np.asarray(lows, float)
@@ -72,11 +71,11 @@ def touch_break(highs, lows, closes, level: float, tol: float,
 
 def placebo_levels(open_px: float, sigma_day: float, distances_sigma: np.ndarray,
                    n: int, seed: int = 0, side: str = "up") -> np.ndarray:
-    """Niveaux factices a des distances tirees de la distribution reelle.
+    """Fake levels at distances drawn from the real distribution.
 
-    C'est le controle indispensable : on compare le taux de rejet d'un VRAI niveau
-    au taux de rejet d'un niveau sans signification place a la MEME distance.
-    Si l'ecart n'est pas significatif, le "niveau" n'apporte rien.
+    This is the indispensable control: the rejection rate of a REAL level is
+    compared with that of a meaningless level placed at the SAME distance.
+    If the difference is not significant, the "level" adds nothing.
     """
     rng = np.random.default_rng(seed)
     d = rng.choice(np.asarray(distances_sigma, float), size=n, replace=True)
@@ -86,13 +85,13 @@ def placebo_levels(open_px: float, sigma_day: float, distances_sigma: np.ndarray
 
 def confluence_table(days: list[dict], level_key: str, tol_sigma: float = 0.05,
                      placebo: bool = True, n_boot: int = 2000, seed: int = 0) -> dict:
-    """Table de frequences touche/cassure/rejet, avec IC bootstrap et placebo.
+    """Touch/break/rejection frequency table, with bootstrap CI and placebo.
 
-    days : liste de dicts, un par seance, contenant au minimum
-           {'highs','lows','closes','open','sigma_day','levels'} ou 'levels'
-           est le dict produit par reference_levels().
-    Retourne les taux reels, les taux placebo et la difference avec IC 95%.
-    C'est cette difference qui est le seul chiffre interpretable.
+    days: list of dicts, one per session, containing at least
+          {'highs','lows','closes','open','sigma_day','levels'} where 'levels' is
+          the dict produced by reference_levels().
+    Returns the real rates, the placebo rates and the difference with a 95% CI.
+    That difference is the only interpretable number.
     """
     real, plac, dists = [], [], []
     for d in days:
@@ -133,11 +132,11 @@ def confluence_table(days: list[dict], level_key: str, tol_sigma: float = 0.05,
 
 
 def volume_profile_poc(bars, bin_size: float = 0.25, value_area: float = 0.70) -> dict:
-    """Point of Control et value area approximes par histogramme de volume.
+    """Point of Control and value area approximated by a volume histogram.
 
-    Approximation honnete : sans donnees tick par tick on repartit le volume de
-    chaque barre uniformement sur son range. C'est biaise mais utilisable pour un
-    niveau de confluence ; ne pas le presenter comme un vrai profil de volume.
+    Honest approximation: without tick-by-tick data, each bar's volume is spread
+    uniformly over its range. Biased but usable for a confluence level; do not
+    present it as a true volume profile.
     """
     lo = np.floor(bars.low.min() / bin_size) * bin_size
     hi = np.ceil(bars.high.max() / bin_size) * bin_size

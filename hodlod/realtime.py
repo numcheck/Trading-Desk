@@ -1,17 +1,17 @@
 """
-D. Temps reel : P(le HOD/LOD courant est le final | information a t).
+D. Real time: P(the running HOD/LOD is the final one | information at t).
 
-Le noyau est une probabilite de survie de maximum. On donne :
-  - la formule sans derive (principe de reflexion),
-  - son extension avec derive,
-  - le cas a deux barrieres (range),
-  - le temps de volatilite,
-  - le constructeur de features et la couche de calibration.
+The core object is the survival probability of a maximum. We provide:
+  - the driftless formula (reflection principle),
+  - its drift extension,
+  - the two-barrier (range) case,
+  - volatility time,
+  - the feature builder and the calibration layer.
 
-Le point crucial : ces formules supposent un MB a volatilite CONSTANTE. Le vrai
-marche viole 3 hypotheses (derive, queues epaisses/sauts, vol stochastique). La
-couche de calibration empirique est ce qui rend l'objet utilisable ; la formule
-sert de benchmark que le ML doit battre, pas de verite.
+The crucial point: these formulas assume a Brownian motion with CONSTANT
+volatility. The real market violates three assumptions (drift, fat tails/jumps,
+stochastic volatility). The empirical calibration layer is what makes the object
+usable; the formula is a benchmark the ML must beat, not a truth.
 """
 from __future__ import annotations
 
@@ -20,22 +20,22 @@ from scipy.stats import norm
 
 
 # ----------------------------------------------------------------------------
-# D1. Formules fermees
+# D1. Closed forms
 # ----------------------------------------------------------------------------
 def p_no_new_high(d, s):
-    """P(le maximum courant n'est pas depasse sur l'horizon restant), sans derive.
+    """P(the running maximum is not exceeded over the remaining horizon), no drift.
 
-    d : distance (en prix) entre le max courant et le prix courant, d >= 0
-    s : ecart-type du prix sur l'horizon restant = sigma * sqrt(tau)
+    d: distance (in price) between the running max and the current price, d >= 0
+    s: standard deviation of the price over the remaining horizon = sigma * sqrt(tau)
 
-    Derivation : soit M_t le max courant et X_t le prix. Pour un MB sans derive
-    partant de X_t, P(max_{[t,T]} < M_t) = P(max_{u<=tau} (X_t + sigma W_u) < M_t)
-    = 2*Phi(d/s) - 1, avec d = M_t - X_t. (Principe de reflexion :
+    Derivation: let M_t be the running max and X_t the price. For a driftless BM
+    starting at X_t, P(max_{[t,T]} < M_t) = P(max_{u<=tau} (X_t + sigma W_u) < M_t)
+    = 2*Phi(d/s) - 1, with d = M_t - X_t. (Reflection principle:
     P(M_tau >= a) = 2 P(B_tau >= a) => P(M_tau < a) = 1 - 2(1-Phi(a/s)) = 2Phi(a/s)-1.)
 
-    C'est exactement la formule de l'enonce. Limites : d/s -> 0 => p -> 0
-    (au plus haut avec le prix au plus haut, un nouveau plus haut est quasi certain),
-    d/s grand => p -> 1 (mais lentement).
+    This is exactly the formula in the brief. Limits: d/s -> 0 => p -> 0
+    (at the high with the price at the high, a new high is nearly certain),
+    large d/s => p -> 1 (but slowly).
     """
     d = np.asarray(d, float)
     s = np.maximum(np.asarray(s, float), 1e-12)
@@ -43,24 +43,24 @@ def p_no_new_high(d, s):
 
 
 def p_no_new_high_drift(d, mu, s):
-    """Meme probabilite avec derive.
+    """Same probability with drift.
 
-    d  : distance au maximum courant (prix)
-    mu : derive sur l'horizon restant (prix) = mu_rate * tau
-    s  : sigma * sqrt(tau)
+    d : distance to the running maximum (price)
+    mu: drift over the remaining horizon (price) = mu_rate * tau
+    s : sigma * sqrt(tau)
 
-    Formule de la barriere absorbante :
+    Absorbing-barrier formula:
       P(max < a) = Phi((a - mu)/s) - exp(2*mu*a/s^2) * Phi((-a - mu)/s)
-    Verifie : mu -> 0 redonne 2Phi(a/s) - 1.
+    Check: mu -> 0 recovers 2Phi(a/s) - 1.
     """
     from scipy.special import log_ndtr
     d = np.atleast_1d(np.asarray(d, float))
     s = np.maximum(np.atleast_1d(np.asarray(s, float)), 1e-12)
     mu = np.broadcast_to(np.asarray(mu, float), d.shape).astype(float)
-    # mu nul -> formule sans derive (evite toute annulation numerique)
+    # zero drift -> driftless formula (avoids numerical cancellation)
     zero = np.abs(mu) < 1e-12 * s
     mu_safe = np.where(zero, 0.0, mu)
-    # exp(2 mu d / s^2) * Phi((-d-mu)/s) calcule en log pour rester stable
+    # exp(2 mu d / s^2) * Phi((-d-mu)/s) computed in logs to stay stable
     log_term = log_ndtr((-d - mu_safe) / s) + 2.0 * mu_safe * d / s ** 2
     general = norm.cdf((d - mu_safe) / s) - np.exp(np.clip(log_term, -700.0, 700.0))
     out = np.where(zero, 2.0 * norm.cdf(d / s) - 1.0, general)
@@ -68,18 +68,18 @@ def p_no_new_high_drift(d, mu, s):
 
 
 def p_range_within(a, b, s, n_terms: int = 200):
-    """P(-a < min et max < b) pour un MB sans derive, ecart-type total s, depart 0.
+    """P(-a < min and max < b) for a driftless BM, total stdev s, starting at 0.
 
-    Methode des images a DEUX barrieres absorbantes :
+    Image method with TWO absorbing barriers:
       sum_k [ Phi((b + 2kL)/s) - Phi((-a + 2kL)/s) ]
     - sum_k [ Phi((b + 2a + 2kL)/s) - Phi((a + 2kL)/s) ],   L = a + b.
-    Le second somme est indispensable : l'oublier surestime massivement la
-    probabilite (0.68 au lieu de 0.37 pour a=b=s). Verifie en Monte-Carlo.
+    The second sum is essential: omitting it massively overstates the probability
+    (0.68 instead of 0.37 for a=b=s). Verified by Monte-Carlo.
 
-    Limite b -> inf : la seconde somme -> 1 - Phi(a/s) et le total -> 2Phi(a/s)-1,
-    ce qui redonne bien la formule a une barriere.
-    Convergence rapide si min(a,b)/s >= 0.25 ; lente en dessous (garder n_terms eleve
-    ou passer en Monte-Carlo).
+    Limit b -> inf: the second sum -> 1 - Phi(a/s) and the total -> 2Phi(a/s)-1,
+    which recovers the one-barrier formula.
+    Convergence is fast when min(a,b)/s >= 0.25 and slow below (keep n_terms high
+    or switch to Monte-Carlo).
     """
     a = float(a)
     b = float(b)
@@ -92,25 +92,25 @@ def p_range_within(a, b, s, n_terms: int = 200):
 
 
 def remaining_sigma(sigma_day: float, F_now: float) -> float:
-    """sigma sur l'horizon restant, en temps de volatilite.
+    """Sigma over the remaining horizon, in volatility time.
 
-    F_now = fraction de variance deja ecoulee (0 a l'ouverture, 1 a la cloture).
+    F_now = fraction of variance already elapsed (0 at the open, 1 at the close).
     sigma_remaining = sigma_day * sqrt(1 - F_now).
-    C'est LE point ou l'on gagne le plus vs temps horloge : la derniere demi-heure
-    porte typiquement bien plus de variance que la moyenne uniforme.
+    This is THE place where we gain the most versus clock time: the last half hour
+    typically carries far more variance than a uniform average.
     """
     return float(sigma_day * np.sqrt(max(1.0 - F_now, 0.0)))
 
 
 def p_final_now(price, running_max, running_min, sigma_day, F_now,
                 side: str = "high", drift_bps: float = 0.0) -> float:
-    """Wrapper pratique : probabilite que le HOD (ou LOD) courant soit le final."""
+    """Convenience wrapper: probability that the running HOD (or LOD) is final."""
     s = remaining_sigma(sigma_day, F_now)
     if s <= 0:
         return 1.0
     if side == "high":
         d = max(running_max - price, 0.0)
-        return float(p_no_new_high_d(d, s)) if drift_bps == 0 else \
+        return float(p_no_new_high(d, s)) if drift_bps == 0 else \
             float(p_no_new_high_drift(np.array([d]), drift_bps * price * 1e-4, np.array([s]))[0])
     d = max(price - running_min, 0.0)
     if drift_bps == 0:
@@ -119,15 +119,15 @@ def p_final_now(price, running_max, running_min, sigma_day, F_now,
 
 
 # ----------------------------------------------------------------------------
-# D2. Version moyennee sur la volatilite stochastique
+# D2. Version averaged over stochastic volatility
 # ----------------------------------------------------------------------------
 def p_final_mixture(d, sigma_day, F_now, vol_of_vol: float = 0.35,
                     n_nodes: int = 9) -> float:
-    """Integre la formule sur une distribution log-normale de sigma (vol stochastique).
+    """Integrates the formula over a log-normal distribution of sigma.
 
-    Effet : melanger des sigma fait apparaitre des queues plus epaisses, ce qui
-    AUGMENTE P(nouveau plus haut) loin de l'extreme -> p_final baisse.
-    vol_of_vol = ecart-type de log(sigma) (0.3-0.5 typique sur indices).
+    Effect: mixing sigmas creates fatter tails, which INCREASES P(new high) far
+    from the extreme -> p_final falls.
+    vol_of_vol = standard deviation of log(sigma) (0.3-0.5 typical for indices).
     """
     s0 = remaining_sigma(sigma_day, F_now)
     if s0 <= 0:
@@ -140,18 +140,18 @@ def p_final_mixture(d, sigma_day, F_now, vol_of_vol: float = 0.35,
 
 
 # ----------------------------------------------------------------------------
-# D3. Features temps reel (aucun look-ahead)
+# D3. Real-time features (no look-ahead)
 # ----------------------------------------------------------------------------
 def session_features(bars, i: int, sigma_day: float, F_grid: np.ndarray,
                      ctx: dict | None = None) -> dict:
-    """Features disponibles a la barre i (inclusivement), pour une seance.
+    """Features available at bar i (inclusive), for one session.
 
-    bars : DataFrame indexe par minute avec open/high/low/close/volume.
-    F_grid : fraction de variance cumulee, meme longueur que bars.
-    ctx : niveaux de reference calculees AVANT l'ouverture (pdh, pdl, onh, onl, vwap...).
+    bars: DataFrame indexed by minute with open/high/low/close/volume.
+    F_grid: cumulative variance fraction, same length as bars.
+    ctx: reference levels computed BEFORE the open (pdh, pdl, onh, onl, vwap...).
 
-    Regle d'or : toute variable utilisee ici doit etre connue a la fin de la barre i.
-    Le HOD final n'entre JAMAIS dans les features.
+    Golden rule: every variable used here must be known at the end of bar i.
+    The final HOD NEVER enters the features.
     """
     ctx = ctx or {}
     sub = bars.iloc[: i + 1]
@@ -202,11 +202,11 @@ def session_features(bars, i: int, sigma_day: float, F_grid: np.ndarray,
 # D4. Calibration
 # ----------------------------------------------------------------------------
 class IsotonicCalibrator:
-    """Calibration isotonique avec repli lineaire hors bornes.
+    """Isotonic calibration with linear extrapolation outside the fitted range.
 
-    Pourquoi calibrer : le modele de diffusion est sur-confiant dans les regimes
-    calmes et sous-confiant apres un choc. La calibration doit etre estimee sur un
-    echantillon distinct (walk-forward), jamais sur le train du classifieur.
+    Why calibrate: the diffusion model is over-confident in calm regimes and
+    under-confident after a shock. Calibration must be estimated on a separate
+    sample (walk-forward), never on the classifier's training set.
     """
 
     def __init__(self, out_of_bounds: str = "clip"):
@@ -223,7 +223,7 @@ class IsotonicCalibrator:
         return np.clip(self._iso.predict(np.asarray(p, float)), 0.0, 1.0)
 
     def slope(self, p, y):
-        """Pente de calibration : 1 = parfait, <1 = sur-confiance, >1 = sous-confiance."""
+        """Calibration slope: 1 = perfect, <1 = over-confident, >1 = under-confident."""
         p = np.asarray(p, float)
         y = np.asarray(y, float)
         if p.std() == 0:

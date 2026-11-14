@@ -1,23 +1,23 @@
 """
-Couche donnees — feeds gratuits (Yahoo chart API, sans cle).
+Data layer - free feeds (Yahoo chart API, no key).
 
-LIMITES REELLES MESUREES le 2026-11-13 :
-    1m  : 60 jours max de recul, 7 j/requete
-    5m  : 60 jours max de recul          <-- inutilisable pour 3 ans
-    15m : 60 jours max de recul
-    30m : 60 jours max de recul
-    1h  : 730 jours max de recul         <-- la seule granularite intraday longue
-    1d  : illimite
+REAL LIMITS MEASURED on 2026-11-13:
+    1m  : 60 days of history max, 7 d/request
+    5m  : 60 days of history max        <-- unusable for 3 years
+    15m : 60 days of history max
+    30m : 60 days of history max
+    1h  : 730 days of history max       <-- the only long intraday granularity
+    1d  : unlimited
 
-D'ou la strategie retenue :
-  * ES=F / NQ=F en QUOTIDIEN sur 6 ans  -> etude d'amplitude et de localisation
-  * SPY / QQQ en 1h sur 730 jours       -> timing, temps reel, backtest
-  * ES=F / SPY en 5m sur 60 jours       -> controle haute resolution
+Hence the strategy retained:
+  * ES=F / NQ=F DAILY over 6 years     -> amplitude and location study
+  * SPY / QQQ at 1h over 730 days      -> timing, real time, backtest
+  * ES=F / SPY at 5m over 60 days      -> high-resolution control
 
-Les barres 1h de SPY avec includePrePost=false s'alignent exactement sur la seance
-(09:30, 10:30, ..., 15:30) plus une barre parasite a 16:00 qui capture les echanges
-post-cloture : elle est SUPPRIMEE. La reconstruction est validee contre le OHLC
-quotidien de l'exchange (voir validate()).
+SPY 1h bars with includePrePost=false align exactly on the session
+(09:30, 10:30, ..., 15:30) plus a spurious 16:00 bar capturing post-close
+trading: it is REMOVED. The reconstruction is validated against the exchange's
+daily OHLC (see validate()).
 """
 from __future__ import annotations
 
@@ -58,11 +58,11 @@ def _get(url: str, tries: int = 5) -> dict:
         except Exception as e:                      # noqa: BLE001
             last = e
             time.sleep(2.0 * (k + 1))
-    raise RuntimeError(f"Yahoo: echec apres {tries} essais ({last})")
+    raise RuntimeError(f"Yahoo: failed after {tries} attempts ({last})")
 
 
 def yahoo(symbol: str, interval: str, days: int, prepost: bool = False) -> pd.DataFrame:
-    """Telecharge une serie, indexee en heure de New York."""
+    """Downloads a series, indexed in New York time."""
     days = min(days, LIMITS[interval])
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=days)
@@ -93,7 +93,7 @@ def yahoo(symbol: str, interval: str, days: int, prepost: bool = False) -> pd.Da
 
 
 def daily(symbol: str, years: int = 6) -> pd.DataFrame:
-    """OHLC quotidien (verite terrain pour H/L de seance)."""
+    """Daily OHLC (ground truth for session H/L)."""
     f = CACHE / f"{symbol.replace('=','_')}_1d_{years}y.pkl"
     if f.exists():
         return pd.read_pickle(f)
@@ -110,15 +110,15 @@ def daily(symbol: str, years: int = 6) -> pd.DataFrame:
 
 
 def bars_1h(symbol: str, days: int = 730) -> pd.DataFrame:
-    """Barres 1h RTH reconstruites (7 barres : 09:30 -> 16:00)."""
+    """Reconstructed RTH 1h bars (7 bars: 09:30 -> 16:00)."""
     f = CACHE / f"{symbol.replace('=','_')}_1h.pkl"
     if f.exists():
         return pd.read_pickle(f)
     d = yahoo(symbol, "1h", days, prepost=False)
     mins = d.index.hour * 60 + d.index.minute
-    d = d[(mins >= 9 * 60 + 30) & (mins < 16 * 60)].copy()   # supprime la barre 16:00
-    mins = d.index.hour * 60 + d.index.minute                # recalcule apres filtre
-    d["date"] = pd.to_datetime(d.index.date)                 # Timestamp, pas datetime.date
+    d = d[(mins >= 9 * 60 + 30) & (mins < 16 * 60)].copy()   # remove the 16:00 bar
+    mins = d.index.hour * 60 + d.index.minute                # recompute after filtering
+    d["date"] = pd.to_datetime(d.index.date)                 # Timestamp, not datetime.date
     d["slot"] = (mins - (9 * 60 + 30)) // 60                  # 0..6
     d = d[d.slot <= 6]
     d.to_pickle(f)
@@ -126,7 +126,7 @@ def bars_1h(symbol: str, days: int = 730) -> pd.DataFrame:
 
 
 def sessions_1h(symbol: str, days: int = 730, min_slots: int = 6) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Agrege en seances. Rend (barres 1h RTH, table par seance)."""
+    """Aggregates into sessions. Returns (RTH 1h bars, per-session table)."""
     b = bars_1h(symbol, days)
     g = b.groupby("date")
     sess = pd.DataFrame({
@@ -143,14 +143,14 @@ def sessions_1h(symbol: str, days: int = 730, min_slots: int = 6) -> tuple[pd.Da
         c = np.r_[x.open.iloc[0], x.close.values]
         return float(np.sum(np.diff(np.log(c)) ** 2))
     sess["rv"] = b.groupby("date").apply(_rv).reindex(sess.index)
-    sess["t_high"] = (sess.i_high + 0.5) / 7.0     # milieu de la barre, normalise
+    sess["t_high"] = (sess.i_high + 0.5) / 7.0     # middle of the bar, normalised
     sess["t_low"] = (sess.i_low + 0.5) / 7.0
     sess["dow"] = sess.index.dayofweek
     return b, sess
 
 
 def validate(symbol: str, days: int = 730) -> dict:
-    """La reconstruction 1h doit retrouver le OHLC quotidien de l'exchange."""
+    """The 1h reconstruction must recover the exchange's daily OHLC."""
     try:
         d = daily(symbol, 3)
     except Exception as e:                            # noqa: BLE001
