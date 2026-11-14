@@ -164,7 +164,7 @@ class FinzDataProvider:
             cov.notes.append(f"roots failed: {type(exc).__name__}: {exc}")
             return cov
         try:
-            end = pd.Timestamp.utcnow().normalize()
+            end = pd.Timestamp.now(tz="UTC").normalize()
             start = end - pd.Timedelta(days=30)           # free-tier window, measured below
             df = self.bars(root, start.date().isoformat(), end.date().isoformat(), interval)
             cov.start, cov.end = str(df.ts.min()), str(df.ts.max())
@@ -181,7 +181,7 @@ class FinzDataProvider:
 # Local files
 # ----------------------------------------------------------------------------
 DEFAULT_MAP = {
-    "timestamp": ["timestamp", "datetime", "date_time", "time", "ts_event", "index"],
+    "timestamp": ["timestamp", "datetime", "date_time", "date", "time", "ts_event", "index"],
     "open": ["open", "o", "Open"],
     "high": ["high", "h", "High"],
     "low": ["low", "l", "Low"],
