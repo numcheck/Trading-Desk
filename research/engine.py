@@ -75,8 +75,10 @@ def _arc(x):
 # ---------------------------------------------------------------- A. amplitude
 def study_amplitude(sym: str, years: int = 6) -> dict:
     d = daily(sym, years)
-    # har_walkforward returns a sigma in LOG-price: convert it back to points
-    sig = har_walkforward(parkinson_var(d)) * d.close.values
+    # har_walkforward returns a sigma in LOG-price: convert it back to points.
+    # The conversion factor is the CURRENT OPEN (known at 09:30). Multiplying by the
+    # same day's close leaks the close into a quantity used to size the day.
+    sig = har_walkforward(parkinson_var(d)) * d.open.values
     m = np.isfinite(sig) & (sig > 0)
     d, sig = d[m], sig[m]
     R_up = (d.high.values - d.open.values) / sig
@@ -157,7 +159,9 @@ def realtime_rows(sym: str, days: int = 730) -> pd.DataFrame:
     bars, sess = sessions_1h(sym, days)
     prof = profile_slots(bars)
     F = np.cumsum(prof)
-    sig = har_walkforward(parkinson_var(sess)) * sess.close.values   # in points
+    # log-vol -> points with the current open (known at 09:30); the same day's
+    # close would be look-ahead
+    sig = har_walkforward(parkinson_var(sess)) * sess.open.values   # in points
     pos = {d: i for i, d in enumerate(sess.index)}
     rows = []
     for day, g in bars.groupby("date"):
