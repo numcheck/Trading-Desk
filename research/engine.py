@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import chi2, kstest, norm
 
+from hodlod.evaluate import block_bootstrap_ci
 from research.data import daily, sessions_1h
 
 warnings.filterwarnings("ignore")
@@ -289,8 +290,15 @@ def pick(cand: pd.DataFrame, theta: float, kt: float,
 
 
 def metrics(tr: pd.DataFrame) -> dict:
+    """Portfolio metrics, always computed in CHRONOLOGICAL order.
+
+    The out-of-sample trades are concatenated per symbol when built, so an unsorted
+    cumsum would produce a drawdown that belongs to no real portfolio.
+    """
     if len(tr) == 0:
         return {"n": 0}
+    if "date" in tr.columns:
+        tr = tr.sort_values(["date", "slot"]).reset_index(drop=True)
     x = tr.net.values
     eq = np.cumsum(x)
     dd = float(np.max(np.maximum.accumulate(eq) - eq))
@@ -333,25 +341,33 @@ def walkforward_select(cand, rt, thetas, k_tps, min_train_days=150, min_trades=4
     return (pd.concat(oos) if oos else pd.DataFrame()), picks
 
 
-def mc_stats(tr: pd.DataFrame, n_boot: int = 3000, block_days: int = 5, seed: int = 0):
+def mc_stats(tr: pd.DataFrame, n_boot: int = 5000, block_days: int = 5, seed: int = 0):
+    """Bootstrap and permutation on the DAILY P&L series.
+
+    The old version resampled n/5 single days and rescaled the sum by 5, which
+    inflates the interval by about sqrt(5) and is not a block bootstrap. This uses
+    hodlod.evaluate.block_bootstrap_ci on the daily P&L, then rescales the mean and
+    its interval to the horizon by multiplying by the number of days (a total is
+    n_days times the mean daily P&L).
+    """
     if len(tr) == 0:
         return {}
+    tr = tr.sort_values(["date", "slot"])
+    daily_pnl = tr.groupby("date").net.sum().sort_index()
+    ci = block_bootstrap_ci(daily_pnl.values, block=block_days, n_boot=n_boot, seed=seed)
+    n_days = int(len(daily_pnl))
     rng = np.random.default_rng(seed)
-    by_day = tr.groupby("date").net.apply(lambda s: float(s.sum())).to_dict()
-    keys = list(by_day)
-    nb = max(len(keys) // block_days, 1)
-    tot = np.empty(n_boot)
-    for b in range(n_boot):
-        idx = rng.integers(0, len(keys), nb)
-        tot[b] = sum(by_day[keys[i]] for i in idx) / nb * len(keys)
     x = tr.net.values
     perm = np.array([float((x * rng.choice([-1, 1], len(x))).sum()) for _ in range(n_boot)])
-    return {"boot_mean": float(tot.mean()),
-            "boot_ci": [float(np.quantile(tot, 0.025)), float(np.quantile(tot, 0.975))],
-            "p_boot_le_0": float(np.mean(tot <= 0)),
+    return {"boot_mean": float(ci["mean"] * n_days),
+            "boot_ci": [float(ci["ci95"][0] * n_days), float(ci["ci95"][1] * n_days)],
+            "boot_mean_daily": float(ci["mean"]),
+            "p_boot_le_0": float(1.0 - ci["p_positive"]),
+            "n_days": n_days, "block_days": block_days,
             "perm_p": float(np.mean(perm >= x.sum())),
             "perm_95": float(np.quantile(perm, 0.95)),
-            "boot_dist": tot[:1500].tolist(), "perm_dist": perm[:1500].tolist()}
+            "boot_dist": (daily_pnl.values[:1500] * n_days).tolist(),
+            "perm_dist": perm[:1500].tolist()}
 
 
 def deflated_sharpe(sr, T, n_trials, sr_std, skew=0.0, kurt=3.0):
