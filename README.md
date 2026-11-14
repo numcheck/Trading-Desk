@@ -69,6 +69,26 @@ exactly the direction predicted by the discrete-monitoring bias.
   only after the first hour (BSS −0.03 to −0.08 at 10:00, up to +0.17 at 12:30). Beating
   climatology by +0.33 was never the relevant test.
 
+### A free 1-minute check on the real futures
+
+Yahoo serves the last ~25 days of 1-minute bars on ES=F and NQ=F at no cost. That is not
+enough to conclude anything, but it checks the pipeline on the actual instrument rather
+than an ETF: 19 RTH sessions of 390 bars, with real volume.
+
+| | ES | NQ | theory |
+|---|---|---|---|
+| `E[R+/σ]` | 1.020 | 0.957 | 0.798 |
+| `E[range/σ]` | 1.667 | 1.669 | 1.596 |
+| HOD in the first hour | 36.8% | 42.1% | 20.5% |
+| HOD in the last hour | 10.5% | 10.5% | 20.5% |
+
+The direction matches the 1,383-session daily study, but 19 sessions cannot distinguish an
+edge from noise. One measured figure does matter for the cost model: the median ES sigma
+over this window is **44.1 points**, not the 31 assumed in the cost scenarios, so a
+two-tick round trip costs 1.1% of sigma instead of 1.6%.
+
+`python -m research.minute_30d` reproduces it, with no key and no cost.
+
 ### Structure
 
 ```

@@ -149,3 +149,19 @@ the five-year (2021→present) requirement. Five years needs a paid plan.
 overnight session construction from 1-minute bars, DST/holiday/half-day calendar,
 `bar_minutes`/`slots` parameterisation of the engine (still 7 hourly slots), Parquet
 cache for futures bars.
+
+## Free 1-minute validation (no key, no cost)
+
+`research/minute_30d.py` pulls the last ~25 days of 1-minute ES=F / NQ=F from Yahoo and
+builds RTH sessions: 19 sessions, 390 bars each, real volume.
+
+Measured: ES `E[R+/sigma]` 1.020 and `E[range/sigma]` 1.667; NQ 0.957 and 1.669; HOD in
+the first hour 36.8% / 42.1% versus 20.5% for the arcsine law.
+
+Two consequences:
+1. the pipeline is verified on the real instrument, not only on ETFs;
+2. the median ES sigma is **44.1 points** in this window, not the 31 used in
+   `INSTRUMENTS` for cost scenarios. A two-tick round trip is therefore 1.1% of sigma
+   rather than 1.6%, and the cost scenarios must be re-run with the real figure.
+
+Still open: 19 sessions cannot settle anything, and every Phase 2 item below is unchanged.
